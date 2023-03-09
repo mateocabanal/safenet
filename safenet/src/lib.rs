@@ -1,11 +1,12 @@
 pub mod crypto;
 pub mod server;
 
-use std::{sync::Mutex};
+use std::{sync::RwLock};
 use once_cell::sync::Lazy;
 
 use crate::crypto::key_exchange::{ECDSAKeys, ECDHKeys};
 
+#[derive(Clone, Debug)]
 struct AppState {
     ecdsa_server_keys: ECDSAKeys,
 }
@@ -19,8 +20,8 @@ impl AppState {
     }
 }
 
-static APPSTATE: Lazy<Mutex<AppState>> = Lazy::new(|| {
-    Mutex::new(AppState::init())
+static APPSTATE: Lazy<RwLock<AppState>> = Lazy::new(|| {
+    RwLock::new(AppState::init())
 });
 
 #[cfg(test)]
@@ -136,5 +137,11 @@ mod tests {
             "alice plaintext = {}, bob dec plaintext = {}",
             plaintext, dec_plaintext
         );
+    }
+
+    #[test]
+    fn test_appstate() {
+        let app_state_keys = &APPSTATE.read().unwrap().ecdsa_server_keys;
+        println!("App state: pub: {:#?}, priv: {:#?}", app_state_keys.pub_key, app_state_keys.priv_key);
     }
 }

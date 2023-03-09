@@ -6,6 +6,7 @@ use p384::{
 
 use rand::rngs::OsRng;
 
+#[derive(Clone, Debug)]
 pub struct ECDSAKeys {
     pub pub_key: VerifyingKey,
     pub priv_key: SigningKey,
