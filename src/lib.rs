@@ -1,28 +1,9 @@
 pub mod crypto;
 pub mod server;
-
-use std::{sync::RwLock};
-use once_cell::sync::Lazy;
+pub mod app_state;
 
 use crate::crypto::key_exchange::{ECDSAKeys, ECDHKeys};
-
-#[derive(Clone, Debug)]
-struct AppState {
-    ecdsa_server_keys: ECDSAKeys,
-}
-
-impl AppState {
-    pub fn init() -> AppState {
-        let ecdsa_server_keys = ECDSAKeys::init();
-        AppState {
-            ecdsa_server_keys
-        }
-    }
-}
-
-static APPSTATE: Lazy<RwLock<AppState>> = Lazy::new(|| {
-    RwLock::new(AppState::init())
-});
+pub use crate::app_state::APPSTATE;
 
 #[cfg(test)]
 mod tests {
