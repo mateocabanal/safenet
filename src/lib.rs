@@ -1,9 +1,9 @@
+pub mod app_state;
 pub mod crypto;
 pub mod server;
-pub mod app_state;
 
-use crate::crypto::key_exchange::{ECDSAKeys, ECDHKeys};
 pub use crate::app_state::APPSTATE;
+use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
 
 #[cfg(test)]
 mod tests {
@@ -107,10 +107,7 @@ mod tests {
             .encrypt(&nonce, plaintext.as_bytes())
             .unwrap();
 
-        let dec_plaintext_bytes = bob_cipher
-            .cipher
-            .decrypt(&nonce, &*enc_plaintext)
-            .unwrap();
+        let dec_plaintext_bytes = bob_cipher.cipher.decrypt(&nonce, &*enc_plaintext).unwrap();
         let dec_plaintext = std::str::from_utf8(&dec_plaintext_bytes).unwrap();
 
         assert_eq!(plaintext, dec_plaintext);
@@ -123,6 +120,9 @@ mod tests {
     #[test]
     fn test_appstate() {
         let app_state_keys = &APPSTATE.read().unwrap().ecdsa_server_keys;
-        println!("App state: pub: {:#?}, priv: {:#?}", app_state_keys.pub_key, app_state_keys.priv_key);
+        println!(
+            "App state: pub: {:#?}, priv: {:#?}",
+            app_state_keys.pub_key, app_state_keys.priv_key
+        );
     }
 }
