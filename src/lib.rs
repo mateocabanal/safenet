@@ -1,6 +1,7 @@
 pub mod app_state;
 pub mod crypto;
 pub mod server;
+pub mod client;
 
 pub use crate::app_state::APPSTATE;
 use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
@@ -125,4 +126,5 @@ mod tests {
             app_state_keys.pub_key, app_state_keys.priv_key
         );
     }
+
 }

@@ -5,12 +5,14 @@ use std::sync::RwLock;
 #[derive(Clone, Debug)]
 pub struct AppState {
     pub ecdsa_server_keys: ECDSAKeys,
+    pub http_client: hyper::Client,
 }
 
 impl AppState {
     pub fn init() -> AppState {
         let ecdsa_server_keys = ECDSAKeys::init();
-        AppState { ecdsa_server_keys }
+        let http_client = hyper::Client::new();
+        AppState { ecdsa_server_keys, http_client }
     }
 }
 
