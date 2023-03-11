@@ -45,8 +45,14 @@ fn init_conn(req: Request) -> Response {
 }
 
 pub fn start_server(socket: TcpListener) {
+    log::debug!("Started HTTP Server");
     let routes = vec![init_conn(), get_pub_key()];
     let conf = Config::new().routes(Routes::new(routes));
     let http = HttpListener::new(socket, conf);
-    http.start();
+
+    std::thread::spawn(move || {
+        http.start();
+    });
+
+    APPSTATE.write().unwrap().is_http_server_on = true;
 }

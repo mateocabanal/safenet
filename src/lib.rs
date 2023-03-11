@@ -127,4 +127,13 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_network_server_pub_key() {
+        let socket = std::net::TcpListener::bind("127.0.0.1:3876").unwrap();
+        crate::server::http::start_server(socket);
+        while !APPSTATE.read().unwrap().is_http_server_on {}
+        let serv_pub_key = crate::client::http::get_serv_pub();
+
+        assert_eq!(APPSTATE.read().unwrap().ecdsa_server_keys.pub_key, serv_pub_key);
+    }
 }
