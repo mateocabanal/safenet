@@ -11,5 +11,6 @@ fn main() {
         sleep(Duration::from_millis(2000));
     }
 
-    safenet::client::http::get_serv_pub();
+//    safenet::client::http::get_serv_pub();
+    safenet::client::http::start_tunnel();
 }
