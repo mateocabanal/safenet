@@ -29,12 +29,12 @@ fn init_conn(req: Request) -> Response {
             .status_line("403 Forbidden HTTP/1.1");
     }
     let id = &body_bytes[0..=2];
-    println!("id: {}", std::str::from_utf8(id).unwrap());
+    println!("server res: id: {}", std::str::from_utf8(id).unwrap());
 
     let client_ecdsa_key = VerifyingKey::from_sec1_bytes(&body_bytes[3..=51]).unwrap();
     let client_ecdh_key_bytes = &body_bytes[52..=100];
     let client_signature = Signature::from_der(&body_bytes[101..]).unwrap();
-    println!("key: {:#?}", client_signature);
+    println!("server res: key: {:#?}", client_signature);
     if client_ecdsa_key.verify(client_ecdh_key_bytes, &client_signature).is_err() {
         println!("SIG FAILED :(");
     }

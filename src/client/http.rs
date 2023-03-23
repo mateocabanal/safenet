@@ -1,4 +1,5 @@
 
+use minreq::Response;
 use p384::{PublicKey, NistP384, ecdsa::{VerifyingKey, signature::Signer, Signature}, elliptic_curve::sec1::ToEncodedPoint};
 
 use crate::{crypto::key_exchange::ECDHKeys, APPSTATE};
@@ -10,7 +11,7 @@ pub fn get_serv_pub() -> VerifyingKey {
     serv_ecdh
 }
 
-pub fn start_tunnel() {
+pub fn start_tunnel() -> Response {
     let ecdsa_pub_key = APPSTATE.read().unwrap().ecdsa_server_keys.pub_key.to_encoded_point(true);
     let ecdh_keys = ECDHKeys::init();
     let ecdh_pub_key_sec1 = ecdh_keys.pub_key.to_encoded_point(true).to_bytes();
@@ -22,5 +23,5 @@ pub fn start_tunnel() {
     let body = [user_id, ecdsa_pub_key.as_bytes(), &ecdh_pub_key_sec1, &signed_ecdh_pub.to_der().as_bytes()].concat().to_vec();
     println!("body len: {}", body.len());
     let res = minreq::post("http://127.0.0.1:3876/conn/init").with_body(body).send().unwrap();
-    println!("response: {}", std::str::from_utf8(res.as_bytes()).unwrap())
+    res
 }

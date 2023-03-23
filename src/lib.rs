@@ -1,7 +1,7 @@
 pub mod app_state;
+pub mod client;
 pub mod crypto;
 pub mod server;
-pub mod client;
 
 pub use crate::app_state::APPSTATE;
 use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
@@ -9,11 +9,18 @@ use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
 #[cfg(test)]
 mod tests {
     use chacha20poly1305::{AeadCore, ChaCha20Poly1305};
-    use p384::{ecdsa::Signature, PublicKey};
+    use p384::{ecdsa::Signature, ecdsa::VerifyingKey, PublicKey};
 
     use crate::crypto::aes::ChaChaCipher;
 
     use super::*;
+
+    fn start_http_server() {
+        let socket = std::net::TcpListener::bind("127.0.0.1:3876");
+        if let Ok(s) = socket {
+            crate::server::http::start_server(s);
+        }
+    }
 
     #[test]
     fn test_ecdsa() {
@@ -129,11 +136,27 @@ mod tests {
 
     #[test]
     fn test_network_server_pub_key() {
-        let socket = std::net::TcpListener::bind("127.0.0.1:3876").unwrap();
-        crate::server::http::start_server(socket);
+        start_http_server();
         while !APPSTATE.read().unwrap().is_http_server_on {}
         let serv_pub_key = crate::client::http::get_serv_pub();
 
-        assert_eq!(APPSTATE.read().unwrap().ecdsa_server_keys.pub_key, serv_pub_key);
+        assert_eq!(
+            APPSTATE.read().unwrap().ecdsa_server_keys.pub_key,
+            serv_pub_key
+        );
+    }
+
+    #[test]
+    fn test_network_init_conn() {
+        start_http_server();
+        while !APPSTATE.read().unwrap().is_http_server_on {}
+        let res = crate::client::http::start_tunnel();
+        let app_state = APPSTATE.read().unwrap();
+
+        let ecdsa_pub_key = app_state.ecdsa_server_keys.pub_key;
+        assert_eq!(
+            ecdsa_pub_key,
+            VerifyingKey::from_sec1_bytes(res.as_bytes()).unwrap()
+        );
     }
 }
