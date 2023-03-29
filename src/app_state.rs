@@ -1,11 +1,14 @@
-use crate::crypto::key_exchange::ECDSAKeys;
+use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
 use once_cell::sync::Lazy;
-use p384::ecdsa::VerifyingKey;
+use p384::{
+    ecdh::{EphemeralSecret, SharedSecret},
+    ecdsa::VerifyingKey, PublicKey,
+};
 use std::sync::RwLock;
 
-#[derive(Clone, Debug)]
 pub struct AppState {
-    pub ecdsa_server_keys: ECDSAKeys,
+    pub server_keys: ServerKeys,
+    pub client_keys: Vec<ClientKeypair>,
     pub is_http_server_on: bool,
 }
 
@@ -14,22 +17,57 @@ unsafe impl Sync for AppState {}
 
 impl AppState {
     pub fn init() -> AppState {
-        let ecdsa_server_keys = ECDSAKeys::init();
+        let server_keys = ServerKeys::init();
+        let client_keys = vec![];
         AppState {
-            ecdsa_server_keys,
-            is_http_server_on: false,
+            server_keys,
+            client_keys,
+            is_http_server_on: false
         }
     }
 }
 
-#[derive(Clone, Debug)]
-struct ECDSAKeyring {
-    keys: Vec<VerifyingKey>
+pub struct ClientKeypair {
+    pub id: Option<String>,
+    pub ecdsa: Option<VerifyingKey>,
+    pub ecdh: Option<SharedSecret>,
 }
 
-impl ECDSAKeyring {
-    pub fn init() -> ECDSAKeyring {
-        return ECDSAKeyring {keys: vec![]};
+impl ClientKeypair {
+    pub fn new() -> ClientKeypair {
+        return ClientKeypair {
+            id: None,
+            ecdsa: None,
+            ecdh: None
+        }
+    }
+
+    pub fn id(mut self, id: String) -> Self {
+        self.id = Some(id);
+        self
+    }
+
+    pub fn ecdsa(mut self, pub_key: VerifyingKey) -> Self {
+        self.ecdsa = Some(pub_key);
+        self
+    }
+
+    pub fn ecdh(mut self, shared_secret: SharedSecret) -> Self {
+        self.ecdh = Some(shared_secret);
+        self
+    }
+}
+
+pub struct ServerKeys {
+    pub ecdsa: ECDSAKeys,
+    pub ecdh: ECDHKeys,
+}
+
+impl ServerKeys {
+    pub fn init() -> ServerKeys {
+        let ecdsa = ECDSAKeys::init();
+        let ecdh = ECDHKeys::init();
+        return ServerKeys { ecdsa, ecdh };
     }
 }
 

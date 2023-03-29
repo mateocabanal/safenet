@@ -127,10 +127,10 @@ mod tests {
 
     #[test]
     fn test_appstate() {
-        let app_state_keys = &APPSTATE.read().unwrap().ecdsa_server_keys;
+        let app_state_keys = &APPSTATE.read().unwrap().server_keys;
         println!(
             "App state: pub: {:#?}, priv: {:#?}",
-            app_state_keys.pub_key, app_state_keys.priv_key
+            app_state_keys.ecdsa.pub_key, app_state_keys.ecdsa.priv_key
         );
     }
 
@@ -141,7 +141,7 @@ mod tests {
         let serv_pub_key = crate::client::http::get_serv_pub();
 
         assert_eq!(
-            APPSTATE.read().unwrap().ecdsa_server_keys.pub_key,
+            APPSTATE.read().unwrap().server_keys.ecdsa.pub_key,
             serv_pub_key
         );
     }
@@ -153,7 +153,7 @@ mod tests {
         let res = crate::client::http::start_tunnel();
         let app_state = APPSTATE.read().unwrap();
 
-        let ecdsa_pub_key = app_state.ecdsa_server_keys.pub_key;
+        let ecdsa_pub_key = app_state.server_keys.ecdsa.pub_key;
         assert_eq!(
             ecdsa_pub_key,
             VerifyingKey::from_sec1_bytes(res.as_bytes()).unwrap()
