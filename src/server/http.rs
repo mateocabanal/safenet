@@ -130,7 +130,7 @@ fn msg(req: Request) -> Response {
     hasher.finalize_variable(&mut buf).unwrap();
     let dec_body = dec_key.cipher.decrypt(generic_array::GenericArray::from_slice(&buf), body).unwrap();
 
-    println!("from: {}, {}\n", id, std::str::from_utf8(&dec_body).unwrap());
+    println!("\n***\nfrom: {}, {}***", id, std::str::from_utf8(&dec_body).unwrap());
 
     Response::new()
         .mime("fuck/off")

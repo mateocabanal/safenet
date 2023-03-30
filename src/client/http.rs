@@ -27,7 +27,7 @@ pub fn get_serv_pub(peer: SocketAddr) -> VerifyingKey {
     serv_ecdh
 }
 
-pub fn start_tunnel(peer: SocketAddr) -> Response {
+pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Error>> {
     let peer_addr = peer.to_string();
     let ecdsa_pub_key = APPSTATE
         .read()
@@ -66,8 +66,7 @@ pub fn start_tunnel(peer: SocketAddr) -> Response {
     log::trace!("body len: {}", body.len());
     let res = minreq::post(format!("http://{peer_addr}/conn/init"))
         .with_body(body)
-        .send()
-        .unwrap();
+        .send()?;
 
     let body_bytes = res.clone().into_bytes();
     log::trace!("len of res: {}", body_bytes.len());
@@ -104,7 +103,7 @@ pub fn start_tunnel(peer: SocketAddr) -> Response {
         .expect("failed to get write lock")
         .client_keys
         .push(client_keypair);
-    res
+    Ok(res)
 }
 
 pub fn msg<T: Into<String>>(peer: SocketAddr, msg: T) -> Response {

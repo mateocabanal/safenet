@@ -16,7 +16,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     start_server(sock);
     let args = Args::parse();
     let peer = args.peer.parse()?;
-    safenet::client::http::start_tunnel(peer);
+    let mut result = safenet::client::http::start_tunnel(peer);
+    while result.is_err() {
+        log::debug!("could not connect to peer, sleeping 2 secs");
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        result = safenet::client::http::start_tunnel(peer);
+    };
     loop {
         let mut msg = String::new();
         std::io::stdin().read_line(&mut msg)?;
