@@ -1,4 +1,4 @@
-use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
+use crate::crypto::{key_exchange::{ECDHKeys, ECDSAKeys}, aes::ChaChaCipher};
 use once_cell::sync::Lazy;
 use p384::{
     ecdh::{EphemeralSecret, SharedSecret},
@@ -31,6 +31,7 @@ pub struct ClientKeypair {
     pub id: Option<String>,
     pub ecdsa: Option<VerifyingKey>,
     pub ecdh: Option<SharedSecret>,
+    pub chacha: Option<ChaChaCipher>
 }
 
 impl ClientKeypair {
@@ -38,7 +39,8 @@ impl ClientKeypair {
         return ClientKeypair {
             id: None,
             ecdsa: None,
-            ecdh: None
+            ecdh: None,
+            chacha: None
         }
     }
 
@@ -53,9 +55,11 @@ impl ClientKeypair {
     }
 
     pub fn ecdh(mut self, shared_secret: SharedSecret) -> Self {
+        self.chacha = Some(ChaChaCipher::init_with_key(&shared_secret));
         self.ecdh = Some(shared_secret);
         self
     }
+
 }
 
 pub struct ServerKeys {

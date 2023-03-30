@@ -12,9 +12,11 @@ once_cell = "1.17.1"
 p384 = "0.12.0"
 pbkdf2 = "0.11.0"
 rand = "0.8.5"
-tinyhttp = "0.3.0"
+tinyhttp = {version = "0.3.2", default-features = false, features = ["sys"] }
 minreq = "2.6.0"
 log = "0.4.17"
-simple_logger = "4.0.0"
+generic-array = "0.14.7"
 
 [dev-dependencies]
+clap = { version = "4.2.1", features = ["derive"] }
+simple_logger = "4.0.0"

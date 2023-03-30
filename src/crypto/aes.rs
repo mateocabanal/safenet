@@ -8,12 +8,13 @@ use chacha20poly1305::{ChaCha20Poly1305, ChaChaPoly1305, KeyInit};
 use p384::{elliptic_curve::ecdh::SharedSecret, NistP384};
 use pbkdf2::password_hash::{PasswordHasher, SaltString};
 
+#[derive(Clone)]
 pub struct ChaChaCipher {
     pub cipher: ChaCha20Poly1305,
 }
 
 impl ChaChaCipher {
-    pub fn init_with_key(dh_secret: SharedSecret<NistP384>) -> ChaChaCipher {
+    pub fn init_with_key(dh_secret: &SharedSecret<NistP384>) -> ChaChaCipher {
         use blake2::Digest;
 
         let mut hasher = Blake2s256::new();

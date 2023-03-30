@@ -104,8 +104,8 @@ mod tests {
             bob_secret.raw_secret_bytes()
         );
 
-        let alice_cipher = ChaChaCipher::init_with_key(alice_secret);
-        let bob_cipher = ChaChaCipher::init_with_key(bob_secret);
+        let alice_cipher = ChaChaCipher::init_with_key(&alice_secret);
+        let bob_cipher = ChaChaCipher::init_with_key(&bob_secret);
 
         let plaintext = "hi bob!";
 
@@ -156,7 +156,7 @@ mod tests {
         let ecdsa_pub_key = app_state.server_keys.ecdsa.pub_key;
         assert_eq!(
             ecdsa_pub_key,
-            VerifyingKey::from_sec1_bytes(res.as_bytes()).unwrap()
+            VerifyingKey::from_sec1_bytes(&res.as_bytes()[3..=51]).unwrap()
         );
     }
 }
