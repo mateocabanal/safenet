@@ -1,14 +1,15 @@
 use std::{collections::HashMap, net::TcpListener};
 
-use blake2::{Blake2s256, digest::Update, Digest, Blake2bVar, digest::VariableOutput};
+use blake2::{digest::Update, digest::VariableOutput, Blake2bVar, Blake2s256, Digest};
 use chacha20poly1305::aead::Aead;
 use p384::{
+    ecdh::SharedSecret,
     ecdsa::{
         signature::{Signer, Verifier},
         Signature, VerifyingKey,
     },
     elliptic_curve::sec1::ToEncodedPoint,
-    PublicKey, ecdh::SharedSecret,
+    PublicKey,
 };
 use tinyhttp::prelude::*;
 
@@ -33,6 +34,16 @@ fn get_pub_key(_req: Request) -> Response {
 #[post("/conn/init")]
 fn init_conn(req: Request) -> Response {
     let body_bytes = req.get_raw_body();
+    let headers = req.get_headers();
+    let host_res = headers.get("x-forwarded-for");
+    if let None = host_res {
+        return Response::new()
+            .body("nice try loser :)".as_bytes().to_vec())
+            .status_line("403 Forbidden HTTP/1.1");
+    };
+
+    let host = host_res.unwrap().parse().expect("not a socketaddr");
+
     if body_bytes.len() < 197 {
         return Response::new()
             .body("nice try loser :)".as_bytes().to_vec())
@@ -63,6 +74,7 @@ fn init_conn(req: Request) -> Response {
     let new_client_keypair = ClientKeypair::new()
         .id(std::str::from_utf8(id).unwrap().to_string())
         .ecdsa(client_ecdsa_key)
+        .ip(host)
         .ecdh(client_server_shared_secret);
     APPSTATE
         .write()
@@ -70,6 +82,7 @@ fn init_conn(req: Request) -> Response {
         .client_keys
         .push(new_client_keypair);
 
+    log::debug!("helo");
     let app_state = APPSTATE.read().expect("Failed to get read lock");
     let id = "srv".as_bytes();
     let srv_ecdsa_pub_key = app_state
@@ -89,7 +102,7 @@ fn init_conn(req: Request) -> Response {
         id,
         &srv_ecdsa_pub_key,
         &srv_ecdh_bytes,
-        &srv_ecdh_sig.to_der().as_bytes()
+        &srv_ecdh_sig.to_der().as_bytes(),
     ]
     .to_vec()
     .concat();
@@ -107,17 +120,15 @@ fn init_conn(req: Request) -> Response {
 fn msg(req: Request) -> Response {
     let req_bytes = req.get_raw_body();
     let id = std::str::from_utf8(&req_bytes[0..=2]).unwrap();
-    let app_state = APPSTATE
-        .read()
-        .expect("failed to get read lock!");
-    
+    let app_state = APPSTATE.read().expect("failed to get read lock!");
+
     let client_keys = app_state
         .client_keys
         .iter()
         .find(|i| i.id.as_ref().unwrap() == id)
         .unwrap();
 
-    let dec_key = client_keys.chacha.clone().unwrap();
+    let dec_key = client_keys.chacha.as_ref().unwrap();
     let shared_secret_bytes = client_keys.ecdh.as_ref().unwrap().raw_secret_bytes();
     log::debug!("id: {}", id);
     log::debug!("shared_secret: {:#?}", &shared_secret_bytes);
@@ -128,9 +139,16 @@ fn msg(req: Request) -> Response {
     let mut buf = [0u8; 12];
     hasher.update(&shared_secret_bytes);
     hasher.finalize_variable(&mut buf).unwrap();
-    let dec_body = dec_key.cipher.decrypt(generic_array::GenericArray::from_slice(&buf), body).unwrap();
+    let dec_body = dec_key
+        .cipher
+        .decrypt(generic_array::GenericArray::from_slice(&buf), body)
+        .unwrap();
 
-    println!("\n***\nfrom: {}, {}***", id, std::str::from_utf8(&dec_body).unwrap());
+    println!(
+        "\n***\nfrom: {}, {}***",
+        id,
+        std::str::from_utf8(&dec_body).unwrap()
+    );
 
     Response::new()
         .mime("fuck/off")
@@ -142,6 +160,10 @@ pub fn start_server(socket: TcpListener) {
     log::debug!("Started HTTP Server");
     let routes = vec![init_conn(), get_pub_key(), msg()];
     let conf = Config::new().routes(Routes::new(routes));
+    APPSTATE
+        .write()
+        .expect("failed to get write lock")
+        .server_addr = Some(socket.local_addr().unwrap());
     let http = HttpListener::new(socket, conf);
 
     std::thread::spawn(move || {

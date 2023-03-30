@@ -11,7 +11,7 @@ struct Args {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-//    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Info).env().init()?;
+    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Info).env().init()?;
     let sock = TcpListener::bind("0.0.0.0:1800").expect("could not bind on port 1800");
     start_server(sock);
     let args = Args::parse();

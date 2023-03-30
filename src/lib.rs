@@ -138,7 +138,7 @@ mod tests {
     fn test_network_server_pub_key() {
         start_http_server();
         while !APPSTATE.read().unwrap().is_http_server_on {}
-        let serv_pub_key = crate::client::http::get_serv_pub();
+        let serv_pub_key = crate::client::http::get_serv_pub("127.0.0.1:3876".parse().unwrap());
 
         assert_eq!(
             APPSTATE.read().unwrap().server_keys.ecdsa.pub_key,
@@ -150,13 +150,13 @@ mod tests {
     fn test_network_init_conn() {
         start_http_server();
         while !APPSTATE.read().unwrap().is_http_server_on {}
-        let res = crate::client::http::start_tunnel();
+        let res = crate::client::http::start_tunnel("127.0.0.1:3876".parse().unwrap());
         let app_state = APPSTATE.read().unwrap();
 
         let ecdsa_pub_key = app_state.server_keys.ecdsa.pub_key;
         assert_eq!(
             ecdsa_pub_key,
-            VerifyingKey::from_sec1_bytes(&res.as_bytes()[3..=51]).unwrap()
+            VerifyingKey::from_sec1_bytes(&res.unwrap().as_bytes()[3..=51]).unwrap()
         );
     }
 }
