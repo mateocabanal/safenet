@@ -8,6 +8,9 @@ use clap::Parser;
 struct Args {
     #[arg(short, long)]
     peer: String,
+
+    #[arg(short, long)]
+    id: String
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -15,6 +18,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let sock = TcpListener::bind("0.0.0.0:1800").expect("could not bind on port 1800");
     start_server(sock);
     let args = Args::parse();
+    APPSTATE.write()?.user_id = args.id.as_bytes().try_into()?;
     let peer = args.peer.parse()?;
     let mut result = safenet::client::http::start_tunnel(peer);
     while result.is_err() {

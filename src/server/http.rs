@@ -84,7 +84,7 @@ fn init_conn(req: Request) -> Response {
 
     log::debug!("helo");
     let app_state = APPSTATE.read().expect("Failed to get read lock");
-    let id = "srv".as_bytes();
+    let id = app_state.user_id.as_ref();
     let srv_ecdsa_pub_key = app_state
         .server_keys
         .ecdsa

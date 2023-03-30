@@ -11,6 +11,7 @@ pub struct AppState {
     pub client_keys: Vec<ClientKeypair>,
     pub is_http_server_on: bool,
     pub server_addr: Option<SocketAddr>,
+    pub user_id: [u8; 3]
 }
 
 unsafe impl Send for AppState {}
@@ -24,7 +25,8 @@ impl AppState {
             server_keys,
             client_keys,
             server_addr: None,
-            is_http_server_on: false
+            is_http_server_on: false,
+            user_id: [0u8; 3]
         }
     }
 }

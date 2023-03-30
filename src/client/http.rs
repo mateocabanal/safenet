@@ -45,7 +45,7 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
         .ecdsa
         .priv_key
         .sign(&ecdh_pub_key_sec1);
-    let user_id = "teo".as_bytes();
+    let user_id = APPSTATE.read()?.user_id;
 
     log::trace!(
         "id len: {}, ecdsa len: {}, ecdh_key len: {}, sig len: {}",
@@ -56,7 +56,7 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
     );
     log::trace!("key: {:#?}", &signed_ecdh_pub);
     let body = [
-        user_id,
+        user_id.as_ref(),
         ecdsa_pub_key.as_bytes(),
         &ecdh_pub_key_sec1,
         &signed_ecdh_pub.to_der().as_bytes(),
@@ -116,8 +116,8 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
 pub fn msg<T: Into<String>>(peer: SocketAddr, msg: T) -> Result<Response, Box<dyn std::error::Error>> {
     let peer_addr_str = peer.to_string();
 
-    let id = "teo".as_bytes();
     let app_state = APPSTATE.read().expect("failed to get read lock");
+    let id = app_state.user_id.as_ref();
     log::trace!("key pairs: {:#?}", app_state.client_keys);
     let peer_keypair = if let Some(x) = app_state.client_keys.iter().find(|i| i.ip.unwrap() == peer && i.id.as_ref().unwrap() != std::str::from_utf8(id).unwrap()) {
         x
