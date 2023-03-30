@@ -17,8 +17,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = Args::parse();
     let peer = args.peer.parse()?;
     safenet::client::http::start_tunnel(peer);
-    let mut msg = String::new();
     loop {
+        let mut msg = String::new();
         std::io::stdin().read_line(&mut msg)?;
         safenet::client::http::msg(peer, &msg);
     }
