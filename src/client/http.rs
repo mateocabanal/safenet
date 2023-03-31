@@ -90,7 +90,7 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
         .priv_key
         .diffie_hellman(&client_ecdh_key);
     
-    //log::trace!("client: secret: {:#?}", &client_ecdh_key.to_string());
+    log::trace!("client: secret: {:#?}", &client_server_shared_secret.raw_secret_bytes());
 
     log::trace!("added ip to clientkeypair: {:#?}", peer);
 
@@ -126,7 +126,7 @@ pub fn msg<T: Into<String>>(peer: SocketAddr, msg: T) -> Result<Response, Box<dy
 
     let shared_secret_bytes = peer_keypair.ecdh.as_ref().unwrap().raw_secret_bytes();
 
-    //log::debug!("client shared_secret_bytes: {:#?}", &shared_secret_bytes);
+    log::debug!("client shared_secret_bytes: {:#?}", &shared_secret_bytes);
 
     let mut hasher = Blake2bVar::new(12).unwrap();
     let mut buf = [0u8; 12];

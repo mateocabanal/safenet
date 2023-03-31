@@ -69,7 +69,7 @@ fn init_conn(req: Request) -> Response {
         .priv_key
         .diffie_hellman(&client_ecdh_key);
 
-    //log::trace!("server ecdh as bytes: {:#?}", &client_ecdh_key.to_string());
+    log::trace!("server secret as bytes: {:#?}", &client_server_shared_secret.raw_secret_bytes());
     
     let new_client_keypair = ClientKeypair::new()
         .id(std::str::from_utf8(id).unwrap().to_string())
@@ -129,7 +129,7 @@ fn msg(req: Request) -> Response {
     let dec_key = client_keys.chacha.as_ref().unwrap();
     let shared_secret_bytes = client_keys.ecdh.as_ref().unwrap().raw_secret_bytes();
  //   log::debug!("id: {}", id);
-   // log::debug!("shared_secret: {:#?}", &shared_secret_bytes);
+    log::debug!("shared_secret: {:#?}", &shared_secret_bytes);
 
     let body = &req_bytes[3..];
 
