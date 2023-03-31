@@ -54,7 +54,7 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
         ecdh_pub_key_sec1.len(),
         &signed_ecdh_pub.to_der().as_bytes().len()
     );
-    log::trace!("key: {:#?}", &signed_ecdh_pub);
+   // log::trace!("key: {:#?}", &signed_ecdh_pub);
     let body = [
         user_id.as_ref(),
         ecdsa_pub_key.as_bytes(),
@@ -77,7 +77,7 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
     let client_ecdsa_key = VerifyingKey::from_sec1_bytes(&body_bytes[3..=51]).unwrap();
     let client_ecdh_key_bytes = &body_bytes[52..=100];
     let client_signature = Signature::from_der(&body_bytes[101..]).unwrap();
-    log::trace!("server res: key: {:#?}", client_signature);
+    //log::trace!("server res: key: {:#?}", client_signature);
     if client_ecdsa_key
         .verify(client_ecdh_key_bytes, &client_signature)
         .is_err()
@@ -86,13 +86,11 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
     }
 
     let client_ecdh_key = PublicKey::from_sec1_bytes(&client_ecdh_key_bytes).unwrap();
-    let client_server_shared_secret = APPSTATE
-        .read()
-        .expect("failed to get read lock!")
-        .server_keys
-        .ecdh
+    let client_server_shared_secret = ecdh_keys
         .priv_key
         .diffie_hellman(&client_ecdh_key);
+    
+    //log::trace!("client: secret: {:#?}", &client_ecdh_key.to_string());
 
     log::trace!("added ip to clientkeypair: {:#?}", peer);
 
@@ -119,7 +117,7 @@ pub fn msg<T: Into<String>>(peer: SocketAddr, msg: T) -> Result<Response, Box<dy
     let app_state = APPSTATE.read().expect("failed to get read lock");
     let id = app_state.user_id.as_ref();
     log::trace!("key pairs: {:#?}", app_state.client_keys);
-    let peer_keypair = if let Some(x) = app_state.client_keys.iter().find(|i| i.ip.unwrap() == peer && i.id.as_ref().unwrap() != std::str::from_utf8(id).unwrap()) {
+    let peer_keypair = if let Some(x) = app_state.client_keys.iter().find(|i| i.ip.unwrap() == peer) {
         x
     } else {
         return Err("no peer id".into());
@@ -134,7 +132,7 @@ pub fn msg<T: Into<String>>(peer: SocketAddr, msg: T) -> Result<Response, Box<dy
     let mut buf = [0u8; 12];
     hasher.update(&shared_secret_bytes);
     hasher.finalize_variable(&mut buf).unwrap();
-    log::debug!("buf: {:#?}", &buf);
+    //log::debug!("buf: {:#?}", &buf);
 
     let enc_msg = peer_keypair
         .chacha

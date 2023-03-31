@@ -13,7 +13,7 @@ use p384::{
 };
 use tinyhttp::prelude::*;
 
-use crate::{app_state::ClientKeypair, APPSTATE};
+use crate::{app_state::ClientKeypair, APPSTATE, crypto::key_exchange::ECDHKeys};
 
 #[get("/keys/pub")]
 fn get_pub_key(_req: Request) -> Response {
@@ -50,7 +50,7 @@ fn init_conn(req: Request) -> Response {
             .status_line("403 Forbidden HTTP/1.1");
     }
     let id = &body_bytes[0..=2];
-    log::trace!("client res: id: {}", std::str::from_utf8(id).unwrap());
+    //log::trace!("client res: id: {}", std::str::from_utf8(id).unwrap());
 
     let client_ecdsa_key = VerifyingKey::from_sec1_bytes(&body_bytes[3..=51]).unwrap();
     let client_ecdh_key_bytes = &body_bytes[52..=100];
@@ -60,17 +60,17 @@ fn init_conn(req: Request) -> Response {
         .verify(client_ecdh_key_bytes, &client_signature)
         .is_err()
     {
-        log::trace!("SIG FAILED :(");
+        log::debug!("SIG FAILED :(");
     }
 
     let client_ecdh_key = PublicKey::from_sec1_bytes(&client_ecdh_key_bytes).unwrap();
-    let client_server_shared_secret = APPSTATE
-        .read()
-        .expect("failed to get read lock!")
-        .server_keys
-        .ecdh
+    let new_ecdh = ECDHKeys::init();
+    let client_server_shared_secret = new_ecdh
         .priv_key
         .diffie_hellman(&client_ecdh_key);
+
+    //log::trace!("server ecdh as bytes: {:#?}", &client_ecdh_key.to_string());
+    
     let new_client_keypair = ClientKeypair::new()
         .id(std::str::from_utf8(id).unwrap().to_string())
         .ecdsa(client_ecdsa_key)
@@ -82,7 +82,6 @@ fn init_conn(req: Request) -> Response {
         .client_keys
         .push(new_client_keypair);
 
-    log::debug!("helo");
     let app_state = APPSTATE.read().expect("Failed to get read lock");
     let id = app_state.user_id.as_ref();
     let srv_ecdsa_pub_key = app_state
@@ -91,12 +90,11 @@ fn init_conn(req: Request) -> Response {
         .pub_key
         .to_encoded_point(true)
         .to_bytes();
-    let srv_ecdh_bytes = app_state
-        .server_keys
-        .ecdh
+    let srv_ecdh_bytes = new_ecdh
         .pub_key
         .to_encoded_point(true)
         .to_bytes();
+
     let srv_ecdh_sig: Signature = app_state.server_keys.ecdsa.priv_key.sign(&srv_ecdh_bytes);
     let body = [
         id,
@@ -108,7 +106,7 @@ fn init_conn(req: Request) -> Response {
     .concat();
 
     //let new_user_ecdsa_pub_key = &body_bytes[3..=52];
-    log::trace!("written response!");
+    //log::trace!("written response!");
 
     Response::new()
         .status_line("HTTP/1.1 200 OK")
@@ -130,8 +128,8 @@ fn msg(req: Request) -> Response {
 
     let dec_key = client_keys.chacha.as_ref().unwrap();
     let shared_secret_bytes = client_keys.ecdh.as_ref().unwrap().raw_secret_bytes();
-    log::debug!("id: {}", id);
-    log::debug!("shared_secret: {:#?}", &shared_secret_bytes);
+ //   log::debug!("id: {}", id);
+   // log::debug!("shared_secret: {:#?}", &shared_secret_bytes);
 
     let body = &req_bytes[3..];
 
