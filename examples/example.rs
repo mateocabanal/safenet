@@ -13,7 +13,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
 //    safenet::client::http::get_serv_pub();
-    safenet::client::http::start_tunnel("127.0.0.1:3876".parse()?);
-    safenet::client::http::msg("127.0.0.1:3876".parse()?, "hello server!");
+    safenet::client::http::start_tunnel("127.0.0.1:3876".parse()?)?;
+    safenet::client::http::msg("127.0.0.1:3876".parse()?, "hello server!")?;
     Ok(())
 }

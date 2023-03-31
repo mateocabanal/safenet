@@ -5,13 +5,15 @@ use p384::{
     ecdsa::VerifyingKey,
 };
 use std::{sync::RwLock, net::SocketAddr};
+use uuid::Uuid;
 
 pub struct AppState {
     pub server_keys: ServerKeys,
     pub client_keys: Vec<ClientKeypair>,
     pub is_http_server_on: bool,
     pub server_addr: Option<SocketAddr>,
-    pub user_id: [u8; 3]
+    pub user_id: [u8; 3],
+    pub uuid: Uuid
 }
 
 unsafe impl Send for AppState {}
@@ -26,6 +28,7 @@ impl AppState {
             client_keys,
             server_addr: None,
             is_http_server_on: false,
+            uuid: Uuid::new_v4(),
             user_id: [0u8; 3]
         }
     }
@@ -36,6 +39,7 @@ pub struct ClientKeypair {
     pub ecdsa: Option<VerifyingKey>,
     pub ecdh: Option<SharedSecret>,
     pub chacha: Option<ChaChaCipher>,
+    pub uuid: Uuid,
     pub ip: Option<SocketAddr>
 }
 
@@ -52,6 +56,7 @@ impl ClientKeypair {
             ecdsa: None,
             ecdh: None,
             chacha: None,
+            uuid: Uuid::new_v4(),
             ip: None
         }
     }
@@ -75,6 +80,11 @@ impl ClientKeypair {
     pub fn ip(mut self, ip: SocketAddr) -> Self {
         self.ip = Some(ip);
         self
+    }
+
+    pub fn uuid(mut self, uuid: Uuid) -> Self {
+        self.uuid = uuid;
+        self 
     }
 
 }

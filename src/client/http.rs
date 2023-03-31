@@ -14,6 +14,7 @@ use p384::{
     elliptic_curve::sec1::ToEncodedPoint,
     PublicKey,
 };
+use uuid::{uuid, Uuid};
 
 use crate::{app_state::{ClientKeypair, AppState}, crypto::key_exchange::ECDHKeys, APPSTATE};
 
@@ -46,10 +47,13 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
         .priv_key
         .sign(&ecdh_pub_key_sec1);
     let user_id = APPSTATE.read()?.user_id;
+    let uuid = APPSTATE.read()?.uuid;
+    let uuid_bytes = uuid.as_bytes();
 
     log::trace!(
-        "id len: {}, ecdsa len: {}, ecdh_key len: {}, sig len: {}",
+        "id len: {}, uuid len: {} ecdsa len: {}, ecdh_key len: {}, sig len: {}",
         user_id.len(),
+        uuid_bytes.len(),
         ecdsa_pub_key.as_bytes().len(),
         ecdh_pub_key_sec1.len(),
         &signed_ecdh_pub.to_der().as_bytes().len()
@@ -57,6 +61,7 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
    // log::trace!("key: {:#?}", &signed_ecdh_pub);
     let body = [
         user_id.as_ref(),
+        uuid_bytes,
         ecdsa_pub_key.as_bytes(),
         &ecdh_pub_key_sec1,
         &signed_ecdh_pub.to_der().as_bytes(),
@@ -73,10 +78,10 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
     let body_bytes = res.clone().into_bytes();
     log::trace!("len of res: {}", body_bytes.len());
     let id = &body_bytes[0..=2];
-
-    let client_ecdsa_key = VerifyingKey::from_sec1_bytes(&body_bytes[3..=51]).unwrap();
-    let client_ecdh_key_bytes = &body_bytes[52..=100];
-    let client_signature = Signature::from_der(&body_bytes[101..]).unwrap();
+    let server_uuid = Uuid::from_slice(&body_bytes[3..=18]).unwrap();
+    let client_ecdsa_key = VerifyingKey::from_sec1_bytes(&body_bytes[19..=67]).unwrap();
+    let client_ecdh_key_bytes = &body_bytes[68..=116];
+    let client_signature = Signature::from_der(&body_bytes[117..]).unwrap();
     //log::trace!("server res: key: {:#?}", client_signature);
     if client_ecdsa_key
         .verify(client_ecdh_key_bytes, &client_signature)
@@ -92,7 +97,7 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
     
     log::trace!("client: secret: {:#?}", &client_server_shared_secret.raw_secret_bytes());
 
-    log::trace!("added ip to clientkeypair: {:#?}", peer);
+    log::trace!("added uuid to clientkeypair: {}", &server_uuid);
 
     let client_keypair = ClientKeypair::new()
         .id(std::str::from_utf8(id)
@@ -100,6 +105,7 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
             .to_string())
         .ecdsa(client_ecdsa_key)
         .ecdh(client_server_shared_secret)
+        .uuid(server_uuid)
         .ip(peer);
 
     APPSTATE
@@ -116,6 +122,7 @@ pub fn msg<T: Into<String>>(peer: SocketAddr, msg: T) -> Result<Response, Box<dy
 
     let app_state = APPSTATE.read().expect("failed to get read lock");
     let id = app_state.user_id.as_ref();
+    let uuid = app_state.uuid.as_bytes();
     log::trace!("key pairs: {:#?}", app_state.client_keys);
     let peer_keypair = if let Some(x) = app_state.client_keys.iter().find(|i| i.ip.unwrap() == peer) {
         x
@@ -148,7 +155,7 @@ pub fn msg<T: Into<String>>(peer: SocketAddr, msg: T) -> Result<Response, Box<dy
     }
 
     let res = minreq::post(format!("http://{peer_addr_str}/conn/test"))
-        .with_body([id.to_vec(), enc_msg.unwrap()].concat())
+        .with_body([id.to_vec(), uuid.to_vec(), enc_msg.unwrap()].concat())
         .send()?;
 
     Ok(res)

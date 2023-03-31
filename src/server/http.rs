@@ -12,6 +12,7 @@ use p384::{
     PublicKey,
 };
 use tinyhttp::prelude::*;
+use uuid::Uuid;
 
 use crate::{app_state::ClientKeypair, APPSTATE, crypto::key_exchange::ECDHKeys};
 
@@ -51,10 +52,12 @@ fn init_conn(req: Request) -> Response {
     }
     let id = &body_bytes[0..=2];
     //log::trace!("client res: id: {}", std::str::from_utf8(id).unwrap());
+    let client_uuid = Uuid::from_slice(&body_bytes[3..=18]).unwrap();
+    log::trace!("client uuid: {}", client_uuid);
 
-    let client_ecdsa_key = VerifyingKey::from_sec1_bytes(&body_bytes[3..=51]).unwrap();
-    let client_ecdh_key_bytes = &body_bytes[52..=100];
-    let client_signature = Signature::from_der(&body_bytes[101..]).unwrap();
+    let client_ecdsa_key = VerifyingKey::from_sec1_bytes(&body_bytes[19..=67]).unwrap();
+    let client_ecdh_key_bytes = &body_bytes[68..=116];
+    let client_signature = Signature::from_der(&body_bytes[117..]).unwrap();
     log::trace!("client res: key: {:#?}", client_signature);
     if client_ecdsa_key
         .verify(client_ecdh_key_bytes, &client_signature)
@@ -75,6 +78,7 @@ fn init_conn(req: Request) -> Response {
         .id(std::str::from_utf8(id).unwrap().to_string())
         .ecdsa(client_ecdsa_key)
         .ip(host)
+        .uuid(client_uuid)
         .ecdh(client_server_shared_secret);
     APPSTATE
         .write()
@@ -96,8 +100,10 @@ fn init_conn(req: Request) -> Response {
         .to_bytes();
 
     let srv_ecdh_sig: Signature = app_state.server_keys.ecdsa.priv_key.sign(&srv_ecdh_bytes);
+    let server_uuid = app_state.uuid.as_bytes();
     let body = [
         id,
+        server_uuid,
         &srv_ecdsa_pub_key,
         &srv_ecdh_bytes,
         &srv_ecdh_sig.to_der().as_bytes(),
@@ -118,12 +124,13 @@ fn init_conn(req: Request) -> Response {
 fn msg(req: Request) -> Response {
     let req_bytes = req.get_raw_body();
     let id = std::str::from_utf8(&req_bytes[0..=2]).unwrap();
+    let client_uuid = Uuid::from_slice(&req_bytes[3..=18]).unwrap();
     let app_state = APPSTATE.read().expect("failed to get read lock!");
 
     let client_keys = app_state
         .client_keys
         .iter()
-        .find(|i| i.id.as_ref().unwrap() == id)
+        .find(|i| i.uuid == client_uuid)
         .unwrap();
 
     let dec_key = client_keys.chacha.as_ref().unwrap();
@@ -131,7 +138,7 @@ fn msg(req: Request) -> Response {
  //   log::debug!("id: {}", id);
     log::debug!("shared_secret: {:#?}", &shared_secret_bytes);
 
-    let body = &req_bytes[3..];
+    let body = &req_bytes[19..];
 
     let mut hasher = Blake2bVar::new(12).unwrap();
     let mut buf = [0u8; 12];
