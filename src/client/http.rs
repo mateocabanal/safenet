@@ -126,7 +126,7 @@ pub fn msg<T: Into<String>>(peer: SocketAddr, msg: T) -> Result<Response, Box<dy
 
     let shared_secret_bytes = peer_keypair.ecdh.as_ref().unwrap().raw_secret_bytes();
 
-    log::debug!("client shared_secret_bytes: {:#?}", &shared_secret_bytes);
+    //log::debug!("client shared_secret_bytes: {:#?}", &shared_secret_bytes);
 
     let mut hasher = Blake2bVar::new(12).unwrap();
     let mut buf = [0u8; 12];
