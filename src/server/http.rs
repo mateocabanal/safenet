@@ -14,7 +14,7 @@ use p384::{
 use tinyhttp::prelude::*;
 use uuid::Uuid;
 
-use crate::{app_state::ClientKeypair, APPSTATE, crypto::key_exchange::ECDHKeys};
+use crate::{app_state::ClientKeypair, crypto::key_exchange::ECDHKeys, APPSTATE};
 
 #[get("/keys/pub")]
 fn get_pub_key(_req: Request) -> Response {
@@ -68,12 +68,23 @@ fn init_conn(req: Request) -> Response {
 
     let client_ecdh_key = PublicKey::from_sec1_bytes(&client_ecdh_key_bytes).unwrap();
     let new_ecdh = ECDHKeys::init();
-    let client_server_shared_secret = new_ecdh
-        .priv_key
-        .diffie_hellman(&client_ecdh_key);
+    let client_server_shared_secret = new_ecdh.priv_key.diffie_hellman(&client_ecdh_key);
 
-    log::trace!("server secret as bytes: {:#?}", &client_server_shared_secret.raw_secret_bytes());
-    
+    log::trace!(
+        "server secret as bytes: {:#?}",
+        &client_server_shared_secret.raw_secret_bytes()
+    );
+    let is_preexisting = APPSTATE
+        .read()
+        .unwrap()
+        .client_keys
+        .iter()
+        .position(|i| *i.ip.as_ref().unwrap() == host);
+    if let Some(s) = is_preexisting {
+        log::trace!("client already exists, overwriting...");
+        APPSTATE.write().unwrap().client_keys.remove(s);
+    };
+
     let new_client_keypair = ClientKeypair::new()
         .id(std::str::from_utf8(id).unwrap().to_string())
         .ecdsa(client_ecdsa_key)
@@ -94,10 +105,7 @@ fn init_conn(req: Request) -> Response {
         .pub_key
         .to_encoded_point(true)
         .to_bytes();
-    let srv_ecdh_bytes = new_ecdh
-        .pub_key
-        .to_encoded_point(true)
-        .to_bytes();
+    let srv_ecdh_bytes = new_ecdh.pub_key.to_encoded_point(true).to_bytes();
 
     let srv_ecdh_sig: Signature = app_state.server_keys.ecdsa.priv_key.sign(&srv_ecdh_bytes);
     let server_uuid = app_state.uuid.as_bytes();
@@ -135,7 +143,7 @@ fn msg(req: Request) -> Response {
 
     let dec_key = client_keys.chacha.as_ref().unwrap();
     let shared_secret_bytes = client_keys.ecdh.as_ref().unwrap().raw_secret_bytes();
- //   log::debug!("id: {}", id);
+    //   log::debug!("id: {}", id);
     log::debug!("shared_secret: {:#?}", &shared_secret_bytes);
 
     let body = &req_bytes[19..];
