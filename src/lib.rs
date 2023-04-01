@@ -156,7 +156,7 @@ mod tests {
         let ecdsa_pub_key = app_state.server_keys.ecdsa.pub_key;
         assert_eq!(
             ecdsa_pub_key,
-            VerifyingKey::from_sec1_bytes(&res.unwrap().as_bytes()[3..=51]).unwrap()
+            VerifyingKey::from_sec1_bytes(&res.unwrap().as_bytes()[19..=67]).unwrap()
         );
     }
 }

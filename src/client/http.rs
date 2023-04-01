@@ -99,6 +99,12 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
 
     log::trace!("added uuid to clientkeypair: {}", &server_uuid);
 
+    let is_preexisting = APPSTATE.read().expect("failed to get read lock").client_keys.iter().position(|i| i.uuid == server_uuid);
+
+    if let Some(s) = is_preexisting {
+        APPSTATE.write().expect("failed to get write lock").client_keys.remove(s);
+    }
+
     let client_keypair = ClientKeypair::new()
         .id(std::str::from_utf8(id)
             .expect("failed to parse id")

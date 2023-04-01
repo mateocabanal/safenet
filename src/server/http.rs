@@ -79,7 +79,7 @@ fn init_conn(req: Request) -> Response {
         .unwrap()
         .client_keys
         .iter()
-        .position(|i| *i.ip.as_ref().unwrap() == host);
+        .position(|i| i.uuid == client_uuid);
     if let Some(s) = is_preexisting {
         log::trace!("client already exists, overwriting...");
         APPSTATE.write().unwrap().client_keys.remove(s);
