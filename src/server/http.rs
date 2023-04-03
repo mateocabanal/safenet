@@ -42,6 +42,12 @@ fn init_conn(req: Request) -> Response {
             .body("nice try loser :)".as_bytes().to_vec())
             .status_line("403 Forbidden HTTP/1.1");
     };
+    
+    #[cfg(debug_assertions)]
+    log::debug!("{}", host_res.unwrap());
+    if *host_res.unwrap() == format!("0.0.0.0:{}", APPSTATE.read().unwrap().server_addr.unwrap().port()) { 
+        log::debug!("host_res == 0.0.0.0")
+    }
 
     let host = host_res.unwrap().parse().expect("not a socketaddr");
 
@@ -81,7 +87,17 @@ fn init_conn(req: Request) -> Response {
         .iter()
         .position(|i| i.uuid == client_uuid);
     if let Some(s) = is_preexisting {
-        log::trace!("client already exists, overwriting...");
+        log::trace!("client uuid already exists, overwriting...");
+        APPSTATE.write().unwrap().client_keys.remove(s);
+    };
+    let is_preexisting_ip = APPSTATE
+        .read()
+        .unwrap()
+        .client_keys
+        .iter()
+        .position(|i| i.ip.unwrap() == host);
+    if let Some(s) = is_preexisting_ip {
+        log::trace!("client ip already exists, overwriting...");
         APPSTATE.write().unwrap().client_keys.remove(s);
     };
 
@@ -154,19 +170,26 @@ fn msg(req: Request) -> Response {
     hasher.finalize_variable(&mut buf).unwrap();
     let dec_body = dec_key
         .cipher
-        .decrypt(generic_array::GenericArray::from_slice(&buf), body)
-        .unwrap();
+        .decrypt(generic_array::GenericArray::from_slice(&buf), body);
 
-    println!(
-        "\n***\nfrom: {}, {}***",
-        id,
-        std::str::from_utf8(&dec_body).unwrap()
-    );
+    if let Ok(body) = dec_body {
+        println!(
+            "\n***\nfrom: {}, {}***",
+            id,
+            std::str::from_utf8(&body).unwrap()
+        );
 
-    Response::new()
-        .mime("fuck/off")
-        .status_line("HTTP/1.1 403 Forbidden")
-        .body("".as_bytes().to_vec())
+        Response::new()
+            .mime("fuck/off")
+            .status_line("HTTP/1.1 403 Forbidden")
+            .body("".as_bytes().to_vec())
+    } else {
+        log::error!("failed to decrypt msg! uuid: {}", client_uuid);
+        Response::new()
+            .mime("fuck/me")
+            .status_line("HTTP/1.1 42069 fuck_me")
+            .body("".as_bytes().to_vec())
+    }
 }
 
 pub fn start_server(socket: TcpListener) {

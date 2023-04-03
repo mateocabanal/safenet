@@ -129,7 +129,7 @@ pub fn msg<T: Into<String>>(peer: SocketAddr, msg: T) -> Result<Response, Box<dy
     let app_state = APPSTATE.read().expect("failed to get read lock");
     let id = app_state.user_id.as_ref();
     let uuid = app_state.uuid.as_bytes();
-    log::trace!("key pairs: {:#?}", app_state.client_keys);
+    log::debug!("key pairs: {:#?}", app_state.client_keys);
     let peer_keypair = if let Some(x) = app_state.client_keys.iter().find(|i| i.ip.unwrap() == peer) {
         x
     } else {

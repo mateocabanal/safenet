@@ -16,6 +16,7 @@ mod tests {
     use super::*;
 
     fn start_http_server() {
+        APPSTATE.write().expect("failed to get write lock").user_id = "teo".as_bytes().try_into().unwrap();
         let socket = std::net::TcpListener::bind("127.0.0.1:3876");
         if let Ok(s) = socket {
             crate::server::http::start_server(s);
@@ -159,4 +160,29 @@ mod tests {
             VerifyingKey::from_sec1_bytes(&res.unwrap().as_bytes()[19..=67]).unwrap()
         );
     }
+
+    #[test]
+    fn test_network_msg() -> Result<(), Box<dyn std::error::Error>> {
+        start_http_server();
+        while !APPSTATE.read().unwrap().is_http_server_on {}
+        crate::client::http::start_tunnel("127.0.0.1:3876".parse()?)?;
+        let res = crate::client::http::msg("127.0.0.1:3876".parse()?, "hello test!")?;
+        assert_eq!(res.as_bytes().len(), 0);
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_uuid() -> Result<(), Box<dyn std::error::Error>> {
+        start_http_server();
+        while !APPSTATE.read()?.is_http_server_on {}
+        let app_state = APPSTATE.read()?;
+        let init_res = crate::client::http::start_tunnel("127.0.0.0.1:3876".parse()?)?;
+        assert_eq!(app_state.uuid, uuid::Uuid::from_slice(&init_res.as_bytes()[3..=18])?);
+        let res = crate::client::http::msg("127.0.0.1:3876".parse()?, "test")?;
+        assert_eq!(app_state.uuid, uuid::Uuid::from_slice(&res.as_bytes()[3..=18])?);
+
+        Ok(())
+    }
+
 }
