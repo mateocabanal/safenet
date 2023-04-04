@@ -1,5 +1,6 @@
 use std::net::TcpListener;
 
+use local_ip_address::linux::local_ip;
 use safenet::{server::http::start_server, APPSTATE};
 use clap::Parser;
 
@@ -18,9 +19,10 @@ struct Args {
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Info).env().init()?;
+    let local_ip = local_ip()?.to_string();
     let args = Args::parse();
     let port = args.port;
-    let sock = TcpListener::bind(format!("0.0.0.0:{port}")).expect("could not bind on port 1800");
+    let sock = TcpListener::bind(format!("{local_ip}:{port}")).expect("could not bind on port 1800");
     start_server(sock);
     APPSTATE.write()?.user_id = args.id.as_bytes().try_into()?;
     let peer = args.peer.parse()?;
