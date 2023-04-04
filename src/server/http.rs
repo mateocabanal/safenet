@@ -1,7 +1,9 @@
 use std::{collections::HashMap, net::TcpListener};
+use std::net::{SocketAddr, IpAddr};
 
 use blake2::{digest::Update, digest::VariableOutput, Blake2bVar, Blake2s256, Digest};
 use chacha20poly1305::aead::Aead;
+use local_ip_address::local_ip;
 use p384::{
     ecdh::SharedSecret,
     ecdsa::{
@@ -42,9 +44,10 @@ fn init_conn(req: Request) -> Response {
             .body("nice try loser :)".as_bytes().to_vec())
             .status_line("403 Forbidden HTTP/1.1");
     };
+    let id = &body_bytes[0..=2];
     
     #[cfg(debug_assertions)]
-    log::debug!("{}", host_res.unwrap());
+    log::debug!("id: {}, ip: {}", std::str::from_utf8(id).unwrap(), host_res.unwrap());
     if *host_res.unwrap() == format!("0.0.0.0:{}", APPSTATE.read().unwrap().server_addr.unwrap().port()) { 
         log::debug!("host_res == 0.0.0.0")
     }
@@ -56,7 +59,6 @@ fn init_conn(req: Request) -> Response {
             .body("nice try loser :)".as_bytes().to_vec())
             .status_line("403 Forbidden HTTP/1.1");
     }
-    let id = &body_bytes[0..=2];
     //log::trace!("client res: id: {}", std::str::from_utf8(id).unwrap());
     let client_uuid = Uuid::from_slice(&body_bytes[3..=18]).unwrap();
     log::trace!("client uuid: {}", client_uuid);
@@ -193,13 +195,15 @@ fn msg(req: Request) -> Response {
 }
 
 pub fn start_server(socket: TcpListener) {
+    let local_ip = local_ip().unwrap();
     log::debug!("Started HTTP Server");
     let routes = vec![init_conn(), get_pub_key(), msg()];
     let conf = Config::new().routes(Routes::new(routes));
     APPSTATE
         .write()
         .expect("failed to get write lock")
-        .server_addr = Some(socket.local_addr().unwrap());
+        .server_addr = Some(SocketAddr::new(IpAddr::V4(local_ip.to_string().parse().unwrap()), socket.local_addr().unwrap().port()));
+    log::trace!("server_addr: {}", APPSTATE.read().unwrap().server_addr.unwrap());
     let http = HttpListener::new(socket, conf);
 
     std::thread::spawn(move || {
