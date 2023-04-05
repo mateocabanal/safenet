@@ -1,8 +1,9 @@
 use std::net::TcpListener;
 
-use local_ip_address::linux::local_ip;
+use local_ip_address::local_ip;
 use safenet::{server::http::start_server, APPSTATE};
 use clap::Parser;
+use dialoguer::Input;
 
 #[derive(Parser, Debug)]
 #[command(author, version)]
@@ -33,8 +34,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         result = safenet::client::http::start_tunnel(peer);
     };
     loop {
-        let mut msg = String::new();
-        std::io::stdin().read_line(&mut msg)?;
+        let msg = Input::<String>::new()
+            .with_prompt("> ")
+            .interact_text()?;
+        if msg == ":quit" {
+            return Ok(());
+        };
         safenet::client::http::msg(peer, &msg)?;
     }
 
