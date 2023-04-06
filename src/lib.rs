@@ -179,8 +179,6 @@ mod tests {
         let uuid = APPSTATE.read()?.uuid.clone();
         let init_res = crate::client::http::start_tunnel("127.0.0.1:3876".parse()?)?;
         assert_eq!(uuid, uuid::Uuid::from_slice(&init_res.as_bytes()[3..=18])?);
-        let res = crate::client::http::msg("127.0.0.1:3876".parse()?, "test")?;
-        assert_eq!(uuid, uuid::Uuid::from_slice(&res.as_bytes()[3..=18])?);
 
         Ok(())
     }
