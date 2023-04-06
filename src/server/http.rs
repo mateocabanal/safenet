@@ -176,7 +176,7 @@ fn msg(req: Request) -> Response {
 
     if let Ok(body) = dec_body {
         println!(
-            "\n***\nfrom: {}, {}***",
+            "\n***\nfrom: {}, {}\n***",
             id,
             std::str::from_utf8(&body).unwrap()
         );
