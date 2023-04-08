@@ -134,7 +134,6 @@ pub fn msg<T: Into<String>>(peer: SocketAddr, msg: T) -> Result<Response, Box<dy
         x
     } else {
         return Err("no peer id".into());
-        unreachable!()
     };
 
     let shared_secret_bytes = peer_keypair.ecdh.as_ref().unwrap().raw_secret_bytes();

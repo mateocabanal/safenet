@@ -18,7 +18,6 @@ struct Args {
     id: String
 }
 
-#[allow(unreachable_code)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Info).env().init()?;
     let local_ip = local_ip()?.to_string();
