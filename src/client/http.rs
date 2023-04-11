@@ -69,10 +69,10 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
     .concat()
     .to_vec();
     log::trace!("body len: {}", body.len());
-    let host_addr = APPSTATE.read().unwrap().server_addr.unwrap().to_string();
+//  let host_addr = APPSTATE.read().unwrap().server_addr.unwrap().to_string();
     let res = minreq::post(format!("http://{peer_addr}/conn/init"))
         .with_body(body)
-        .with_header("x-forwarded-for", host_addr)
+//      .with_header("x-forwarded-for", host_addr)
         .send()?;
 
     let body_bytes = res.clone().into_bytes();
@@ -160,6 +160,50 @@ pub fn msg<T: Into<String>>(peer: SocketAddr, msg: T) -> Result<Response, Box<dy
     }
 
     let res = minreq::post(format!("http://{peer_addr_str}/conn/test"))
+        .with_body([id.to_vec(), uuid.to_vec(), enc_msg.unwrap()].concat())
+        .send()?;
+
+    Ok(res)
+}
+
+pub fn echo_server<T: Into<String>>(peer: SocketAddr, msg: T) -> Result<Response, Box<dyn std::error::Error>> {
+
+    let peer_addr_str = peer.to_string();
+
+    let app_state = APPSTATE.read().expect("failed to get read lock");
+    let id = app_state.user_id.as_ref();
+    let uuid = app_state.uuid.as_bytes();
+    log::debug!("key pairs: {:#?}", app_state.client_keys);
+    let peer_keypair = if let Some(x) = app_state.client_keys.iter().find(|i| i.ip.unwrap() == peer) {
+        x
+    } else {
+        return Err("no peer id".into());
+    };
+
+    let shared_secret_bytes = peer_keypair.ecdh.as_ref().unwrap().raw_secret_bytes();
+
+    log::debug!("client shared_secret_bytes: {:#?}", &shared_secret_bytes);
+
+    let mut hasher = Blake2bVar::new(12).unwrap();
+    let mut buf = [0u8; 12];
+    hasher.update(&shared_secret_bytes);
+    hasher.finalize_variable(&mut buf).unwrap();
+    //log::debug!("buf: {:#?}", &buf);
+
+    let enc_msg = peer_keypair
+        .chacha
+        .as_ref()
+        .unwrap()
+        .cipher
+        .encrypt(
+            generic_array::GenericArray::from_slice(&buf),
+            msg.into().as_bytes(),
+        );
+    if let Err(e) = enc_msg {
+        log::error!("could not encyrpt msg, {}", e);
+    }
+
+    let res = minreq::post(format!("http://{peer_addr_str}/server/echo"))
         .with_body([id.to_vec(), uuid.to_vec(), enc_msg.unwrap()].concat())
         .send()?;
 

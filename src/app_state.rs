@@ -45,7 +45,7 @@ pub struct ClientKeypair {
 
 impl std::fmt::Debug for ClientKeypair {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(id: {}\n, ecdsa: {:?}\n, ecdh: {:?}\n, ip: {:?}\n, uuid: {}\n)", self.id.as_ref().unwrap(), self.ecdsa.unwrap().to_encoded_point(true).to_bytes(), self.ecdh.as_ref().unwrap().raw_secret_bytes(), self.ip.expect("failed to get ip"), self.uuid)
+        write!(f, "(id: {}\n, ecdsa: {:?}\n, ecdh: {:?}\n, uuid: {}\n)", self.id.as_ref().unwrap(), self.ecdsa.unwrap().to_encoded_point(true).to_bytes(), self.ecdh.as_ref().unwrap().raw_secret_bytes(), self.uuid)
     }
 }
 

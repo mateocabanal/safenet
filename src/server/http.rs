@@ -37,22 +37,20 @@ fn get_pub_key(_req: Request) -> Response {
 #[post("/conn/init")]
 fn init_conn(req: Request) -> Response {
     let body_bytes = req.get_raw_body();
-    let headers = req.get_headers();
-    let host_res = headers.get("x-forwarded-for");
-    if let None = host_res {
-        return Response::new()
-            .body("nice try loser :)".as_bytes().to_vec())
-            .status_line("403 Forbidden HTTP/1.1");
-    };
+//    let headers = req.get_headers();
+//    let host_res = headers.get("x-forwarded-for");
+//    if let None = host_res {
+//        return Response::new()
+//            .body("nice try loser :)".as_bytes().to_vec())
+//            .status_line("403 Forbidden HTTP/1.1");
+//    };
     let id = &body_bytes[0..=2];
     
-    #[cfg(debug_assertions)]
-    log::debug!("id: {}, ip: {}", std::str::from_utf8(id).unwrap(), host_res.unwrap());
-    if *host_res.unwrap() == format!("0.0.0.0:{}", APPSTATE.read().unwrap().server_addr.unwrap().port()) { 
-        log::debug!("host_res == 0.0.0.0")
-    }
-
-    let host = host_res.unwrap().parse().expect("not a socketaddr");
+//    #[cfg(debug_assertions)]
+//    log::debug!("id: {}, ip: {}", std::str::from_utf8(id).unwrap(), host_res.unwrap());
+//    if *host_res.unwrap() == format!("0.0.0.0:{}", APPSTATE.read().unwrap().server_addr.unwrap().port()) { 
+//        log::debug!("host_res == 0.0.0.0")
+//    }
 
     if body_bytes.len() < 197 {
         return Response::new()
@@ -92,21 +90,21 @@ fn init_conn(req: Request) -> Response {
         log::trace!("client uuid already exists, overwriting...");
         APPSTATE.write().unwrap().client_keys.remove(s);
     };
-    let is_preexisting_ip = APPSTATE
-        .read()
-        .unwrap()
-        .client_keys
-        .iter()
-        .position(|i| i.ip.unwrap() == host);
-    if let Some(s) = is_preexisting_ip {
-        log::trace!("client ip already exists, overwriting...");
-        APPSTATE.write().unwrap().client_keys.remove(s);
-    };
+//    let is_preexisting_ip = APPSTATE
+//        .read()
+//        .unwrap()
+//        .client_keys
+//        .iter()
+//        .position(|i| i.ip.unwrap() == host);
+//
+//    if let Some(s) = is_preexisting_ip {
+//        log::trace!("client ip already exists, overwriting...");
+//        APPSTATE.write().unwrap().client_keys.remove(s);
+//    };
 
     let new_client_keypair = ClientKeypair::new()
         .id(std::str::from_utf8(id).unwrap().to_string())
         .ecdsa(client_ecdsa_key)
-        .ip(host)
         .uuid(client_uuid)
         .ecdh(client_server_shared_secret);
     APPSTATE
@@ -194,10 +192,46 @@ fn msg(req: Request) -> Response {
     }
 }
 
+#[post("/server/echo")]
+fn server_msg(req: Request) -> Response {
+    let req_bytes = req.get_raw_body();
+    let id = &req_bytes[0..=2];
+    let client_uuid = Uuid::from_slice(&req_bytes[3..=18]).unwrap();
+    let app_state = APPSTATE.read().expect("failed to get read lock!");
+
+    let client_keys = app_state
+        .client_keys
+        .iter()
+        .find(|i| i.uuid == client_uuid)
+        .unwrap();
+
+    let dec_key = client_keys.chacha.as_ref().unwrap();
+    let shared_secret_bytes = client_keys.ecdh.as_ref().unwrap().raw_secret_bytes();
+    //   log::debug!("id: {}", id);
+    log::debug!("shared_secret: {:#?}", &shared_secret_bytes);
+
+    let body = &req_bytes[19..];
+
+    let mut hasher = Blake2bVar::new(12).unwrap();
+    let mut buf = [0u8; 12];
+    hasher.update(&shared_secret_bytes);
+    hasher.finalize_variable(&mut buf).unwrap();
+    let dec_body = dec_key
+        .cipher
+        .decrypt(generic_array::GenericArray::from_slice(&buf), body);
+
+    if let Ok(msg_bytes) = dec_body {
+        let msg = String::from_utf8(msg_bytes).unwrap();
+        Response::new().body(format!("Got it, {msg}").as_bytes().to_vec()).mime("love/u").status_line("HTTP/1.1 200 OK")
+    } else {
+        Response::new().body(vec![]).mime("fuck/u").status_line("HTTP/1.1 42069 fuck_me")
+    }
+}
+
 pub fn start_server(socket: TcpListener) {
     let local_ip = local_ip().unwrap();
     log::debug!("Started HTTP Server");
-    let routes = vec![init_conn(), get_pub_key(), msg()];
+    let routes = vec![init_conn(), get_pub_key(), msg(), server_msg()];
     let conf = Config::new().routes(Routes::new(routes));
     APPSTATE
         .write()
