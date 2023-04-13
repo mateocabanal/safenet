@@ -1,11 +1,10 @@
-use std::{collections::HashMap, net::TcpListener};
+use std::net::TcpListener;
 use std::net::{SocketAddr, IpAddr};
 
-use blake2::{digest::Update, digest::VariableOutput, Blake2bVar, Blake2s256, Digest};
+use blake2::{digest::Update, digest::VariableOutput, Blake2bVar};
 use chacha20poly1305::aead::Aead;
 use local_ip_address::local_ip;
 use p384::{
-    ecdh::SharedSecret,
     ecdsa::{
         signature::{Signer, Verifier},
         Signature, VerifyingKey,

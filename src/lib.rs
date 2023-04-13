@@ -1,6 +1,7 @@
 pub mod app_state;
 pub mod client;
 pub mod crypto;
+pub mod frame;
 pub mod server;
 
 pub use crate::app_state::APPSTATE;
@@ -11,16 +12,35 @@ mod tests {
     use chacha20poly1305::{AeadCore, ChaCha20Poly1305};
     use p384::{ecdsa::Signature, ecdsa::VerifyingKey, PublicKey};
 
-    use crate::crypto::aes::ChaChaCipher;
+    use crate::{app_state::ClientKeypair, crypto::aes::ChaChaCipher, frame::DataFrame};
 
     use super::*;
 
     fn start_http_server() {
-        APPSTATE.write().expect("failed to get write lock").user_id = "teo".as_bytes().try_into().unwrap();
+        APPSTATE.write().expect("failed to get write lock").user_id =
+            "teo".as_bytes().try_into().unwrap();
         let socket = std::net::TcpListener::bind("127.0.0.1:3876");
         if let Ok(s) = socket {
             crate::server::http::start_server(s);
         }
+    }
+
+    fn generate_keypair(id: String) -> ClientKeypair {
+        let app_state = APPSTATE.read().unwrap();
+        let ecdsa_keypair = crypto::key_exchange::ECDSAKeys::init();
+        let ecdh_keypair = crypto::key_exchange::ECDHKeys::init();
+
+        ClientKeypair::new()
+            .ecdsa(ecdsa_keypair.pub_key)
+            .ecdh(
+                app_state
+                    .server_keys
+                    .ecdh
+                    .priv_key
+                    .diffie_hellman(&ecdh_keypair.pub_key),
+            )
+            .uuid(uuid::Uuid::new_v4())
+            .id(id)
     }
 
     #[test]
@@ -183,4 +203,42 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn test_data_frame_struct() -> Result<(), Box<dyn std::error::Error>> {
+        let app_state = APPSTATE.read()?;
+        APPSTATE
+            .write()?
+            .client_keys
+            .push(generate_keypair(String::from("aaa")));
+        APPSTATE
+            .write()?
+            .client_keys
+            .push(generate_keypair(String::from("bbb")));
+
+        let first_pair = app_state
+            .client_keys
+            .iter()
+            .find(|i| i.id.as_ref().ok_or("failed to get id as bytes").unwrap() == "aaa")
+            .ok_or("could not find keypair")?;
+        let second_pair = app_state
+            .client_keys
+            .iter()
+            .find(|i| i.id.as_ref().ok_or("failed to get id as bytes").unwrap() == "bbb")
+            .ok_or("could not find keypair")?;
+        let mut encrypted_frame = DataFrame {
+            id: first_pair
+                .id
+                .as_ref()
+                .ok_or("could not get id")?
+                .as_bytes()
+                .try_into()?,
+            uuid: first_pair.uuid.into_bytes(),
+            body: b"Hello Server!".to_vec(),
+        };
+
+        encrypted_frame.encode_frame(second_pair.uuid)?;
+        encrypted_frame.decode_frame(first_pair.uuid)?;
+
+        Ok(())
+    }
 }
