@@ -205,15 +205,16 @@ mod tests {
 
     #[test]
     fn test_data_frame_struct() -> Result<(), Box<dyn std::error::Error>> {
-        let app_state = APPSTATE.read()?;
-        APPSTATE
-            .write()?
+        let mut app_state_write = APPSTATE.write()?;
+
+        app_state_write
             .client_keys
             .push(generate_keypair(String::from("aaa")));
-        APPSTATE
-            .write()?
+
+        app_state_write
             .client_keys
             .push(generate_keypair(String::from("bbb")));
+        let app_state = APPSTATE.read()?;
 
         let first_pair = app_state
             .client_keys
