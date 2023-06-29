@@ -16,7 +16,12 @@ use p384::{
 };
 use uuid::{uuid, Uuid};
 
-use crate::{app_state::{ClientKeypair, AppState}, crypto::key_exchange::ECDHKeys, APPSTATE};
+use crate::{
+    app_state::{AppState, ClientKeypair},
+    crypto::key_exchange::ECDHKeys,
+    frame::DataFrame,
+    APPSTATE,
+};
 
 pub fn get_serv_pub(peer: SocketAddr) -> VerifyingKey {
     let peer_addr = peer.to_string();
@@ -58,7 +63,7 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
         ecdh_pub_key_sec1.len(),
         &signed_ecdh_pub.to_der().as_bytes().len()
     );
-   // log::trace!("key: {:#?}", &signed_ecdh_pub);
+    // log::trace!("key: {:#?}", &signed_ecdh_pub);
     let body = [
         user_id.as_ref(),
         uuid_bytes,
@@ -69,10 +74,10 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
     .concat()
     .to_vec();
     log::trace!("body len: {}", body.len());
-//  let host_addr = APPSTATE.read().unwrap().server_addr.unwrap().to_string();
+    //  let host_addr = APPSTATE.read().unwrap().server_addr.unwrap().to_string();
     let res = minreq::post(format!("http://{peer_addr}/conn/init"))
         .with_body(body)
-//      .with_header("x-forwarded-for", host_addr)
+        //      .with_header("x-forwarded-for", host_addr)
         .send()?;
 
     let body_bytes = res.clone().into_bytes();
@@ -91,18 +96,28 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
     }
 
     let client_ecdh_key = PublicKey::from_sec1_bytes(&client_ecdh_key_bytes).unwrap();
-    let client_server_shared_secret = ecdh_keys
-        .priv_key
-        .diffie_hellman(&client_ecdh_key);
-    
-    log::trace!("client: secret: {:#?}", &client_server_shared_secret.raw_secret_bytes());
+    let client_server_shared_secret = ecdh_keys.priv_key.diffie_hellman(&client_ecdh_key);
+
+    log::trace!(
+        "client: secret: {:#?}",
+        &client_server_shared_secret.raw_secret_bytes()
+    );
 
     log::trace!("added uuid to clientkeypair: {}", &server_uuid);
 
-    let is_preexisting = APPSTATE.read().expect("failed to get read lock").client_keys.iter().position(|i| i.uuid == server_uuid);
+    let is_preexisting = APPSTATE
+        .read()
+        .expect("failed to get read lock")
+        .client_keys
+        .iter()
+        .position(|i| i.uuid == server_uuid);
 
     if let Some(s) = is_preexisting {
-        APPSTATE.write().expect("failed to get write lock").client_keys.remove(s);
+        APPSTATE
+            .write()
+            .expect("failed to get write lock")
+            .client_keys
+            .remove(s);
     }
 
     let client_keypair = ClientKeypair::new()
@@ -123,88 +138,101 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
     Ok(res)
 }
 
-pub fn msg<T: Into<String>>(peer: SocketAddr, msg: T) -> Result<Response, Box<dyn std::error::Error>> {
+pub fn msg<T: Into<String>>(
+    peer: SocketAddr,
+    msg: T,
+) -> Result<Response, Box<dyn std::error::Error>> {
     let peer_addr_str = peer.to_string();
 
-    let app_state = APPSTATE.read().expect("failed to get read lock");
-    let id = app_state.user_id.as_ref();
-    let uuid = app_state.uuid.as_bytes();
-    log::debug!("key pairs: {:#?}", app_state.client_keys);
-    let peer_keypair = if let Some(x) = app_state.client_keys.iter().find(|i| i.ip.unwrap() == peer) {
-        x
-    } else {
-        return Err("no peer id".into());
-    };
+    let mut data_frame = DataFrame::new(msg.into().as_bytes().to_vec());
 
-    let shared_secret_bytes = peer_keypair.ecdh.as_ref().unwrap().raw_secret_bytes();
+    //    let app_state = APPSTATE.read().expect("failed to get read lock");
+    //    let id = app_state.user_id.as_ref();
+    //    let uuid = app_state.uuid.as_bytes();
+    //    log::debug!("key pairs: {:#?}", app_state.client_keys);
+    //    let peer_keypair = if let Some(x) = app_state.client_keys.iter().find(|i| i.ip.unwrap() == peer) {
+    //        x
+    //    } else {
+    //        return Err("no peer id".into());
+    //    };
+    //
+    //    let shared_secret_bytes = peer_keypair.ecdh.as_ref().unwrap().raw_secret_bytes();
+    //
+    //    log::debug!("client shared_secret_bytes: {:#?}", &shared_secret_bytes);
+    //
+    //    let mut hasher = Blake2bVar::new(12).unwrap();
+    //    let mut buf = [0u8; 12];
+    //    hasher.update(&shared_secret_bytes);
+    //    hasher.finalize_variable(&mut buf).unwrap();
+    //    //log::debug!("buf: {:#?}", &buf);
+    //
+    //    let enc_msg = peer_keypair
+    //        .chacha
+    //        .as_ref()
+    //        .unwrap()
+    //        .cipher
+    //        .encrypt(
+    //            generic_array::GenericArray::from_slice(&buf),
+    //            msg.into().as_bytes(),
+    //        );
+    //    if let Err(e) = enc_msg {
+    //        log::error!("could not encyrpt msg, {}", e);
+    //    }
 
-    log::debug!("client shared_secret_bytes: {:#?}", &shared_secret_bytes);
-
-    let mut hasher = Blake2bVar::new(12).unwrap();
-    let mut buf = [0u8; 12];
-    hasher.update(&shared_secret_bytes);
-    hasher.finalize_variable(&mut buf).unwrap();
-    //log::debug!("buf: {:#?}", &buf);
-
-    let enc_msg = peer_keypair
-        .chacha
-        .as_ref()
-        .unwrap()
-        .cipher
-        .encrypt(
-            generic_array::GenericArray::from_slice(&buf),
-            msg.into().as_bytes(),
-        );
-    if let Err(e) = enc_msg {
-        log::error!("could not encyrpt msg, {}", e);
-    }
+    data_frame.encode_frame_with_addr(peer)?;
 
     let res = minreq::post(format!("http://{peer_addr_str}/conn/test"))
-        .with_body([id.to_vec(), uuid.to_vec(), enc_msg.unwrap()].concat())
+        .with_body(data_frame.to_bytes())
         .send()?;
 
     Ok(res)
 }
 
-pub fn echo_server<T: Into<String>>(peer: SocketAddr, msg: T) -> Result<Response, Box<dyn std::error::Error>> {
-
+pub fn echo_server<T: Into<String>>(
+    peer: SocketAddr,
+    msg: T,
+) -> Result<Response, Box<dyn std::error::Error>> {
     let peer_addr_str = peer.to_string();
 
-    let app_state = APPSTATE.read().expect("failed to get read lock");
-    let id = app_state.user_id.as_ref();
-    let uuid = app_state.uuid.as_bytes();
-    log::debug!("key pairs: {:#?}", app_state.client_keys);
-    let peer_keypair = if let Some(x) = app_state.client_keys.iter().find(|i| i.ip.unwrap() == peer) {
-        x
-    } else {
-        return Err("no peer id".into());
-    };
+    let mut data_frame = DataFrame::new(msg.into().as_bytes().to_vec());
 
-    let shared_secret_bytes = peer_keypair.ecdh.as_ref().unwrap().raw_secret_bytes();
+    //    let app_state = APPSTATE.read().expect("failed to get read lock");
+    //    let id = app_state.user_id.as_ref();
+    //    let uuid = app_state.uuid.as_bytes();
+    //    log::debug!("key pairs: {:#?}", app_state.client_keys);
+    //    let peer_keypair = if let Some(x) = app_state.client_keys.iter().find(|i| i.ip.unwrap() == peer) {
+    //        x
+    //    } else {
+    //        return Err("no peer id".into());
+    //    };
+    //
+    //    let shared_secret_bytes = peer_keypair.ecdh.as_ref().unwrap().raw_secret_bytes();
+    //
+    //    log::debug!("client shared_secret_bytes: {:#?}", &shared_secret_bytes);
+    //
+    //    let mut hasher = Blake2bVar::new(12).unwrap();
+    //    let mut buf = [0u8; 12];
+    //    hasher.update(&shared_secret_bytes);
+    //    hasher.finalize_variable(&mut buf).unwrap();
+    //    //log::debug!("buf: {:#?}", &buf);
+    //
+    //    let enc_msg = peer_keypair
+    //        .chacha
+    //        .as_ref()
+    //        .unwrap()
+    //        .cipher
+    //        .encrypt(
+    //            generic_array::GenericArray::from_slice(&buf),
+    //            msg.into().as_bytes(),
+    //        );
+    //    if let Err(e) = enc_msg {
+    //        log::error!("could not encyrpt msg, {}", e);
+    //    }
 
-    log::debug!("client shared_secret_bytes: {:#?}", &shared_secret_bytes);
-
-    let mut hasher = Blake2bVar::new(12).unwrap();
-    let mut buf = [0u8; 12];
-    hasher.update(&shared_secret_bytes);
-    hasher.finalize_variable(&mut buf).unwrap();
-    //log::debug!("buf: {:#?}", &buf);
-
-    let enc_msg = peer_keypair
-        .chacha
-        .as_ref()
-        .unwrap()
-        .cipher
-        .encrypt(
-            generic_array::GenericArray::from_slice(&buf),
-            msg.into().as_bytes(),
-        );
-    if let Err(e) = enc_msg {
-        log::error!("could not encyrpt msg, {}", e);
-    }
+    data_frame.encode_frame_with_addr(peer)?;
 
     let res = minreq::post(format!("http://{peer_addr_str}/server/echo"))
-        .with_body([id.to_vec(), uuid.to_vec(), enc_msg.unwrap()].concat())
+        .with_body(data_frame.to_bytes())
         .send()?;
 
     Ok(res)

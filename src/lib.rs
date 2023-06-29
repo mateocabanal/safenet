@@ -25,6 +25,7 @@ mod tests {
         }
     }
 
+    // NOTE: Cannot hold a .write() lock on APPSTATE
     fn generate_keypair(id: String) -> ClientKeypair {
         let app_state = APPSTATE.read().unwrap();
         let ecdsa_keypair = crypto::key_exchange::ECDSAKeys::init();
@@ -185,7 +186,7 @@ mod tests {
     fn test_network_msg() -> Result<(), Box<dyn std::error::Error>> {
         start_http_server();
         while !APPSTATE.read().unwrap().is_http_server_on {}
-        crate::client::http::start_tunnel("127.0.0.1:3876".parse()?)?;
+        //crate::client::http::start_tunnel("127.0.0.1:3876".parse()?)?;
         let res = crate::client::http::msg("127.0.0.1:3876".parse()?, "hello test!")?;
         assert_eq!(res.as_bytes().len(), 0);
 
@@ -196,7 +197,7 @@ mod tests {
     fn test_uuid() -> Result<(), Box<dyn std::error::Error>> {
         start_http_server();
         while !APPSTATE.read()?.is_http_server_on {}
-        let uuid = APPSTATE.read()?.uuid.clone();
+        let uuid = APPSTATE.read()?.uuid;
         let init_res = crate::client::http::start_tunnel("127.0.0.1:3876".parse()?)?;
         assert_eq!(uuid, uuid::Uuid::from_slice(&init_res.as_bytes()[3..=18])?);
 
@@ -205,15 +206,16 @@ mod tests {
 
     #[test]
     fn test_data_frame_struct() -> Result<(), Box<dyn std::error::Error>> {
-        let mut app_state_write = APPSTATE.write()?;
+        let aaa_keys = generate_keypair(String::from("aaa"));
+        let bbb_keys = generate_keypair(String::from("bbb"));
 
-        app_state_write
-            .client_keys
-            .push(generate_keypair(String::from("aaa")));
+        // NOTE: WRITE HELD!
+        let mut appstate_rw = APPSTATE.write()?;
+        appstate_rw.client_keys.push(aaa_keys);
+        appstate_rw.client_keys.push(bbb_keys);
+        drop(appstate_rw);
+        // NOTE: WRITE DROPPED!
 
-        app_state_write
-            .client_keys
-            .push(generate_keypair(String::from("bbb")));
         let app_state = APPSTATE.read()?;
 
         let first_pair = app_state
@@ -221,23 +223,24 @@ mod tests {
             .iter()
             .find(|i| i.id.as_ref().ok_or("failed to get id as bytes").unwrap() == "aaa")
             .ok_or("could not find keypair")?;
-        let second_pair = app_state
-            .client_keys
-            .iter()
-            .find(|i| i.id.as_ref().ok_or("failed to get id as bytes").unwrap() == "bbb")
-            .ok_or("could not find keypair")?;
         let mut encrypted_frame = DataFrame {
-            id: first_pair
-                .id
-                .as_ref()
-                .ok_or("could not get id")?
-                .as_bytes()
-                .try_into()?,
-            uuid: first_pair.uuid.into_bytes(),
+            id: Some(
+                first_pair
+                    .id
+                    .as_ref()
+                    .ok_or("could not get id")?
+                    .as_bytes()
+                    .try_into()?,
+            ),
+            uuid: Some(first_pair.uuid.into_bytes()),
             body: b"Hello Server!".to_vec(),
+            frame_type: None,
+            init_frame_opts: None,
         };
 
-        encrypted_frame.encode_frame(second_pair.uuid)?;
+        println!("encoding frame ...");
+        encrypted_frame.encode_frame(first_pair.uuid)?;
+        println!("decoding frame ...");
         encrypted_frame.decode_frame(first_pair.uuid)?;
 
         Ok(())
