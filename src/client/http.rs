@@ -69,7 +69,7 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
         uuid_bytes,
         ecdsa_pub_key.as_bytes(),
         &ecdh_pub_key_sec1,
-        &signed_ecdh_pub.to_der().as_bytes(),
+        signed_ecdh_pub.to_der().as_bytes(),
     ]
     .concat()
     .to_vec();

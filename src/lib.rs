@@ -3,6 +3,7 @@ pub mod client;
 pub mod crypto;
 pub mod frame;
 pub mod server;
+pub mod config;
 
 pub use crate::app_state::APPSTATE;
 use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};

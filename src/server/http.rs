@@ -82,7 +82,7 @@ fn init_conn(req: Request) -> Response {
         log::debug!("SIG FAILED :(");
     }
 
-    let client_ecdh_key = PublicKey::from_sec1_bytes(&client_ecdh_key_bytes).unwrap();
+    let client_ecdh_key = PublicKey::from_sec1_bytes(client_ecdh_key_bytes).unwrap();
     let new_ecdh = ECDHKeys::init();
     let client_server_shared_secret = new_ecdh.priv_key.diffie_hellman(&client_ecdh_key);
 
@@ -140,7 +140,7 @@ fn init_conn(req: Request) -> Response {
         server_uuid,
         &srv_ecdsa_pub_key,
         &srv_ecdh_bytes,
-        &srv_ecdh_sig.to_der().as_bytes(),
+        srv_ecdh_sig.to_der().as_bytes(),
     ]
     .to_vec()
     .concat();
