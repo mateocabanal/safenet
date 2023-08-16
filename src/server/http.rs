@@ -15,7 +15,7 @@ use p384::{
 use tinyhttp::prelude::*;
 use uuid::Uuid;
 
-use crate::frame::DataFrame;
+use crate::frame::{DataFrame, InitFrame, Frame};
 use crate::{app_state::ClientKeypair, crypto::key_exchange::ECDHKeys, APPSTATE};
 
 #[get("/keys/pub")]
@@ -44,16 +44,13 @@ fn init_conn(req: Request) -> Response {
     //            .body("nice try loser :)".as_bytes().to_vec())
     //            .status_line("403 Forbidden HTTP/1.1");
     //    };
-    let id = &body_bytes[0..=2];
-    let data_frame = DataFrame::try_from(body_bytes);
+    let init_frame = InitFrame::default();
 
-    if let Err(_) = data_frame {
+    if init_frame.from_peer(body_bytes).is_err() {
         return Response::new()
             .body(b"nice try :)".to_vec())
-            .status_line("403 Forbidden HTTP/1.1");
+            .status_line("HTTP/1.1 403 Forbidden");
     }
-
-    let data_frame = data_frame.unwrap();
 
     //    #[cfg(debug_assertions)]
     //    log::debug!("id: {}, ip: {}", std::str::from_utf8(id).unwrap(), host_res.unwrap());
@@ -61,45 +58,39 @@ fn init_conn(req: Request) -> Response {
     //        log::debug!("host_res == 0.0.0.0")
     //    }
 
-    if body_bytes.len() < 197 {
-        return Response::new()
-            .body("nice try loser :)".as_bytes().to_vec())
-            .status_line("403 Forbidden HTTP/1.1");
-    }
     //log::trace!("client res: id: {}", std::str::from_utf8(id).unwrap());
     //    let client_uuid = Uuid::from_slice(&body_bytes[3..=18]).unwrap();
-    let client_uuid = Uuid::from_bytes(data_frame.uuid.unwrap());
-    log::trace!("client uuid: {}", client_uuid);
-
-    let client_ecdsa_key = VerifyingKey::from_sec1_bytes(&body_bytes[19..=67]).unwrap();
-    let client_ecdh_key_bytes = &body_bytes[68..=116];
-    let client_signature = Signature::from_der(&body_bytes[117..]).unwrap();
-    log::trace!("client res: key: {:#?}", client_signature);
-    if client_ecdsa_key
-        .verify(client_ecdh_key_bytes, &client_signature)
-        .is_err()
-    {
-        log::debug!("SIG FAILED :(");
-    }
-
-    let client_ecdh_key = PublicKey::from_sec1_bytes(client_ecdh_key_bytes).unwrap();
-    let new_ecdh = ECDHKeys::init();
-    let client_server_shared_secret = new_ecdh.priv_key.diffie_hellman(&client_ecdh_key);
-
-    log::trace!(
-        "server secret as bytes: {:#?}",
-        &client_server_shared_secret.raw_secret_bytes()
-    );
-    let is_preexisting = APPSTATE
-        .read()
-        .unwrap()
-        .client_keys
-        .iter()
-        .position(|i| i.uuid == client_uuid);
-    if let Some(s) = is_preexisting {
-        log::trace!("client uuid already exists, overwriting...");
-        APPSTATE.write().unwrap().client_keys.remove(s);
-    };
+    //    log::trace!("client uuid: {}", client_uuid);
+    //
+    //    let client_ecdsa_key = VerifyingKey::from_sec1_bytes(&body_bytes[19..=67]).unwrap();
+    //    let client_ecdh_key_bytes = &body_bytes[68..=116];
+    //    let client_signature = Signature::from_der(&body_bytes[117..]).unwrap();
+    //    log::trace!("client res: key: {:#?}", client_signature);
+    //    if client_ecdsa_key
+    //        .verify(client_ecdh_key_bytes, &client_signature)
+    //        .is_err()
+    //    {
+    //        log::debug!("SIG FAILED :(");
+    //    }
+    //
+    //    let client_ecdh_key = PublicKey::from_sec1_bytes(client_ecdh_key_bytes).unwrap();
+    //    let new_ecdh = ECDHKeys::init();
+    //    let client_server_shared_secret = new_ecdh.priv_key.diffie_hellman(&client_ecdh_key);
+    //
+    //    log::trace!(
+    //        "server secret as bytes: {:#?}",
+    //        &client_server_shared_secret.raw_secret_bytes()
+    //    );
+    //    let is_preexisting = APPSTATE
+    //        .read()
+    //        .unwrap()
+    //        .client_keys
+    //        .iter()
+    //        .position(|i| i.uuid == client_uuid);
+    //    if let Some(s) = is_preexisting {
+    //        log::trace!("client uuid already exists, overwriting...");
+    //        APPSTATE.write().unwrap().client_keys.remove(s);
+    //    };
     //    let is_preexisting_ip = APPSTATE
     //        .read()
     //        .unwrap()
@@ -112,45 +103,45 @@ fn init_conn(req: Request) -> Response {
     //        APPSTATE.write().unwrap().client_keys.remove(s);
     //    };
 
-    let new_client_keypair = ClientKeypair::new()
-        .id(std::str::from_utf8(id).unwrap().to_string())
-        .ecdsa(client_ecdsa_key)
-        .uuid(client_uuid)
-        .ecdh(client_server_shared_secret);
-    APPSTATE
-        .write()
-        .expect("failed to write-lock state!")
-        .client_keys
-        .push(new_client_keypair);
+    //    let new_client_keypair = ClientKeypair::new()
+    //        .id(std::str::from_utf8(id).unwrap().to_string())
+    //        .ecdsa(client_ecdsa_key)
+    //        .uuid(client_uuid)
+    //        .ecdh(client_server_shared_secret);
+    //    APPSTATE
+    //        .write()
+    //        .expect("failed to write-lock state!")
+    //        .client_keys
+    //        .push(new_client_keypair);
+    //
+    //    let app_state = APPSTATE.read().expect("Failed to get read lock");
+    //    let id = app_state.user_id.as_ref();
+    //    let srv_ecdsa_pub_key = app_state
+    //        .server_keys
+    //        .ecdsa
+    //        .pub_key
+    //        .to_encoded_point(true)
+    //        .to_bytes();
+    //    let srv_ecdh_bytes = new_ecdh.pub_key.to_encoded_point(true).to_bytes();
 
-    let app_state = APPSTATE.read().expect("Failed to get read lock");
-    let id = app_state.user_id.as_ref();
-    let srv_ecdsa_pub_key = app_state
-        .server_keys
-        .ecdsa
-        .pub_key
-        .to_encoded_point(true)
-        .to_bytes();
-    let srv_ecdh_bytes = new_ecdh.pub_key.to_encoded_point(true).to_bytes();
-
-    let srv_ecdh_sig: Signature = app_state.server_keys.ecdsa.priv_key.sign(&srv_ecdh_bytes);
-    let server_uuid = app_state.uuid.as_bytes();
-    let body = [
-        id,
-        server_uuid,
-        &srv_ecdsa_pub_key,
-        &srv_ecdh_bytes,
-        srv_ecdh_sig.to_der().as_bytes(),
-    ]
-    .to_vec()
-    .concat();
+//    let srv_ecdh_sig: Signature = app_state.server_keys.ecdsa.priv_key.sign(&srv_ecdh_bytes);
+//    let server_uuid = app_state.uuid.as_bytes();
+//    let body = [
+//        id,
+//        server_uuid,
+//        &srv_ecdsa_pub_key,
+//        &srv_ecdh_bytes,
+//        srv_ecdh_sig.to_der().as_bytes(),
+//    ]
+//    .to_vec()
+//    .concat();
 
     //let new_user_ecdsa_pub_key = &body_bytes[3..=52];
     //log::trace!("written response!");
 
     Response::new()
         .status_line("HTTP/1.1 200 OK")
-        .body(body)
+        .body(init_frame.to_bytes())
         .mime("fuck/off")
 }
 
@@ -165,30 +156,30 @@ fn msg(req: Request) -> Response {
             .status_line("HTTP/1.1 42069 fuck_u");
     }
     let mut data_frame = data_frame.unwrap();
-//    let id = std::str::from_utf8(&req_bytes[0..=2]).unwrap();
-//    let client_uuid = Uuid::from_slice(&req_bytes[3..=18]).unwrap();
-//    let app_state = APPSTATE.read().expect("failed to get read lock!");
-//
-//    let client_keys = app_state
-//        .client_keys
-//        .iter()
-//        .find(|i| i.uuid == client_uuid)
-//        .unwrap();
-//
-//    let dec_key = client_keys.chacha.as_ref().unwrap();
-//    let shared_secret_bytes = client_keys.ecdh.as_ref().unwrap().raw_secret_bytes();
-//    //   log::debug!("id: {}", id);
-//    log::debug!("shared_secret: {:#?}", &shared_secret_bytes);
-//
-//    let body = &req_bytes[19..];
-//
-//    let mut hasher = Blake2bVar::new(12).unwrap();
-//    let mut buf = [0u8; 12];
-//    hasher.update(&shared_secret_bytes);
-//    hasher.finalize_variable(&mut buf).unwrap();
-//    let dec_body = dec_key
-//        .cipher
-//        .decrypt(generic_array::GenericArray::from_slice(&buf), body);
+    //    let id = std::str::from_utf8(&req_bytes[0..=2]).unwrap();
+    //    let client_uuid = Uuid::from_slice(&req_bytes[3..=18]).unwrap();
+    //    let app_state = APPSTATE.read().expect("failed to get read lock!");
+    //
+    //    let client_keys = app_state
+    //        .client_keys
+    //        .iter()
+    //        .find(|i| i.uuid == client_uuid)
+    //        .unwrap();
+    //
+    //    let dec_key = client_keys.chacha.as_ref().unwrap();
+    //    let shared_secret_bytes = client_keys.ecdh.as_ref().unwrap().raw_secret_bytes();
+    //    //   log::debug!("id: {}", id);
+    //    log::debug!("shared_secret: {:#?}", &shared_secret_bytes);
+    //
+    //    let body = &req_bytes[19..];
+    //
+    //    let mut hasher = Blake2bVar::new(12).unwrap();
+    //    let mut buf = [0u8; 12];
+    //    hasher.update(&shared_secret_bytes);
+    //    hasher.finalize_variable(&mut buf).unwrap();
+    //    let dec_body = dec_key
+    //        .cipher
+    //        .decrypt(generic_array::GenericArray::from_slice(&buf), body);
     let uuid = Uuid::from_bytes(data_frame.uuid.unwrap());
     let dec_body = data_frame.decode_frame(uuid);
 

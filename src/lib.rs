@@ -13,7 +13,7 @@ mod tests {
     use chacha20poly1305::{AeadCore, ChaCha20Poly1305};
     use p384::{ecdsa::Signature, ecdsa::VerifyingKey, PublicKey};
 
-    use crate::{app_state::ClientKeypair, crypto::aes::ChaChaCipher, frame::DataFrame};
+    use crate::{app_state::ClientKeypair, crypto::aes::ChaChaCipher, frame::{DataFrame, Options, InitFrame, Frame}};
 
     use super::*;
 
@@ -235,8 +235,7 @@ mod tests {
             ),
             uuid: Some(first_pair.uuid.into_bytes()),
             body: b"Hello Server!".to_vec(),
-            frame_type: None,
-            init_frame_opts: None,
+            options: Options::default()
         };
 
         println!("encoding frame ...");
@@ -244,6 +243,14 @@ mod tests {
         println!("decoding frame ...");
         encrypted_frame.decode_frame(first_pair.uuid)?;
 
+        Ok(())
+    }
+
+    #[test]
+    fn verify_init_frame() -> Result<(), Box<dyn std::error::Error>> {
+        let init_frame = InitFrame::default();
+        let init_frame_2 = InitFrame::default();
+        init_frame.from_peer(&init_frame_2.to_bytes());
         Ok(())
     }
 }

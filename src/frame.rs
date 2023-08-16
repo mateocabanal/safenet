@@ -1,4 +1,10 @@
-use std::net::SocketAddr;
+use local_ip_address::local_ip;
+use p384::ecdsa::signature::Signer;
+use std::{
+    collections::HashMap,
+    net::{IpAddr, SocketAddr},
+};
+use uuid::Uuid;
 
 use blake2::{
     digest::{Update, VariableOutput},
@@ -7,29 +13,256 @@ use blake2::{
 use chacha20poly1305::aead::Aead;
 use p384::{
     ecdsa::{signature::Verifier, Signature, VerifyingKey},
+    elliptic_curve::sec1::ToEncodedPoint,
     PublicKey,
 };
 
-use crate::APPSTATE;
+use crate::{app_state::ClientKeypair, crypto::key_exchange::ECDHKeys, APPSTATE};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default, Copy)]
 pub enum FrameType {
-    Data,
-    Init,
+    #[default]
+    Data = 1,
+    Init = 0,
 }
 
-#[derive(Clone, Debug)]
-pub struct InitFrameOpts {
-    ecdsa_pub_key: VerifyingKey,
-    ecdh_pub_key: PublicKey,
+#[derive(Debug, Clone, Copy)]
+pub struct Options {
+    frame_type: FrameType,
+    ip_addr: Option<IpAddr>,
 }
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            frame_type: FrameType::Data,
+            ip_addr: local_ip().ok(),
+        }
+    }
+}
+
+impl Into<Vec<u8>> for Options {
+    fn into(self) -> Vec<u8> {
+        let header_as_string = format!("frame_type = {}\u{00ae}", self.frame_type as u8);
+        let ip_addr_as_string = if let Some(addr) = self.ip_addr {
+            format!("ip_addr = {}\u{00ae}", addr)
+        } else {
+            "".to_string()
+        };
+
+        let bytes = [
+            header_as_string.into_bytes(),
+            ip_addr_as_string.into_bytes(),
+        ]
+        .concat();
+
+        #[cfg(test)]
+        println!(
+            "option bytes as string: {}",
+            std::str::from_utf8(&bytes).unwrap()
+        );
+
+        bytes
+    }
+}
+
+pub trait Frame {
+    fn to_bytes(&self) -> Vec<u8>;
+}
+
+pub struct InitFrame {
+    pub id: [u8; 3],
+    pub uuid: [u8; 16],
+    pub options: Options,
+    pub ecdsa_pub_key: VerifyingKey,
+    pub ecdh_keys: ECDHKeys,
+    pub ecdh_signature: Signature,
+}
+
+impl Frame for InitFrame {
+    fn to_bytes(&self) -> Vec<u8> {
+        let options_bytes: Vec<u8> = self.options.into();
+        let options_size: u32 = options_bytes.len() as u32;
+        [
+            self.id.as_slice(),
+            self.uuid.as_slice(),
+            &options_size.to_be_bytes(),
+            &options_bytes,
+            &self.ecdsa_pub_key.to_encoded_point(true).to_bytes(),
+            &self.ecdh_keys.pub_key.to_encoded_point(true).to_bytes(),
+            &self.ecdh_signature.to_der().to_bytes(),
+        ]
+        .concat()
+    }
+}
+
+impl Default for InitFrame {
+    fn default() -> InitFrame {
+        let appstate_r = APPSTATE
+            .try_read()
+            .expect("could not get read handle on appstate");
+        let id = appstate_r.user_id;
+        let uuid = appstate_r.uuid.to_bytes_le();
+        let options = Options {
+            frame_type: FrameType::Init,
+            ip_addr: local_ip().ok(),
+        };
+        let ecdsa_pub_key = appstate_r.server_keys.ecdsa.pub_key;
+        let ecdh_keys = ECDHKeys::init();
+        let ecdh_signature: Signature = appstate_r
+            .server_keys
+            .ecdsa
+            .priv_key
+            .sign(ecdh_keys.pub_key.to_encoded_point(true).as_bytes());
+
+        InitFrame {
+            id,
+            uuid,
+            options,
+            ecdsa_pub_key,
+            ecdh_keys,
+            ecdh_signature,
+        }
+    }
+}
+
+impl InitFrame {
+    pub fn from_peer(&self, frame_bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        let id = &frame_bytes[0..=2];
+        let uuid = Uuid::from_slice(&frame_bytes[3..=18]).unwrap();
+        let options_len = u32::from_be_bytes(frame_bytes[19..=22].try_into()?);
+
+        let body = &frame_bytes[23..];
+
+        let mut current_opt_index = 0usize;
+        let mut options = Options::default();
+        let mut options_map = HashMap::new();
+
+        // PERF: Must wait until "slice_first_last_chunk" feature is stablized
+        // in order to use arrays instead
+        let options_bytes = &body[..options_len as usize];
+
+        #[cfg(test)]
+        {
+            println!("len of all options: {}", options_len);
+            println!("options bytes {:?}", options_bytes);
+        }
+
+        while let Some(option_slice) = options_bytes[current_opt_index..]
+            .iter()
+            .enumerate()
+            .find(|(_, ascii_code)| **ascii_code == b'\xAE')
+            .map(|(index, _)| &options_bytes[current_opt_index..index])
+        {
+            #[cfg(test)]
+            println!(
+                "length of option, current_opt_index: {}, {}",
+                option_slice.len(),
+                current_opt_index
+            );
+
+            let equal_sign_pos = option_slice
+                .iter()
+                .position(|ascii_code| *ascii_code == b'=')
+                .unwrap();
+            let header_key = &option_slice[..equal_sign_pos];
+            let header_value = &option_slice[equal_sign_pos + 1..option_slice.len()- 1];
+
+            let header_key_str = std::str::from_utf8(header_key)
+                .expect("not a valid str")
+                .trim()
+                .to_string();
+
+            let header_value_str = std::str::from_utf8(header_value)
+                .expect("not a valid value str")
+                .trim()
+                .to_string();
+
+            #[cfg(test)]
+            {
+                println!("header: {header_key_str} = {header_value_str}");
+            }
+
+            options_map.insert(header_key_str, header_value_str);
+
+            current_opt_index += option_slice.len() + 1;
+        }
+
+        options.frame_type = match options_map
+            .get("frame_type")
+            .expect("frame_type option not sent!")
+            .parse::<u8>()
+            .expect("frame_type value not a u8")
+        {
+            0 => FrameType::Init,
+            1 => FrameType::Data,
+            2u8..=u8::MAX => return Err("frame_type out of bounds".into()),
+        };
+
+        let ip_addr_of_peer = options_map.get("ip_addr").expect("no ip value sent");
+        let init_vars_slice = &body[options_len as usize..];
+
+        let client_ecdsa_key = VerifyingKey::from_sec1_bytes(&init_vars_slice[0..=48]).unwrap();
+        let client_ecdh_key_bytes = &init_vars_slice[49..=97];
+        let client_signature = Signature::from_der(&init_vars_slice[98..]).unwrap();
+        //log::trace!("server res: key: {:#?}", client_signature);
+        if client_ecdsa_key
+            .verify(client_ecdh_key_bytes, &client_signature)
+            .is_err()
+        {
+            log::trace!("SIG FAILED :(");
+        }
+
+        let client_ecdh_key = PublicKey::from_sec1_bytes(client_ecdh_key_bytes).unwrap();
+        let peer_shared_secret = self.ecdh_keys.priv_key.diffie_hellman(&client_ecdh_key);
+
+        log::trace!(
+            "client: secret: {:#?}",
+            &peer_shared_secret.raw_secret_bytes()
+        );
+
+        log::trace!("added uuid to clientkeypair: {}", &uuid);
+
+        let is_preexisting = APPSTATE
+            .read()
+            .expect("failed to get read lock")
+            .client_keys
+            .iter()
+            .position(|i| i.uuid == uuid);
+
+        if let Some(s) = is_preexisting {
+            APPSTATE
+                .write()
+                .expect("failed to get write lock")
+                .client_keys
+                .remove(s);
+        }
+
+        let client_keypair = ClientKeypair::new()
+            .id(std::str::from_utf8(id)
+                .expect("failed to parse id")
+                .to_string())
+            .ecdsa(client_ecdsa_key)
+            .ecdh(peer_shared_secret)
+            .ip(ip_addr_of_peer.parse().unwrap())
+            .uuid(uuid);
+
+        APPSTATE
+            .try_write()
+            .expect("failed to get write lock")
+            .client_keys
+            .push(client_keypair);
+
+        Ok(())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DataFrame {
     pub id: Option<[u8; 3]>,
     pub uuid: Option<[u8; 16]>,
     pub body: Vec<u8>,
-    pub frame_type: Option<FrameType>,
-    pub init_frame_opts: Option<InitFrameOpts>,
+    pub options: Options,
 }
 
 #[allow(clippy::derivable_impls)]
@@ -39,42 +272,27 @@ impl Default for DataFrame {
             id: None,
             uuid: None,
             body: vec![],
-            frame_type: None,
-            init_frame_opts: None
+            options: Options::default(),
         }
     }
 }
 
-impl DataFrame {
-    pub fn to_bytes(&self) -> Vec<u8> {
+impl Frame for DataFrame {
+    fn to_bytes(&self) -> Vec<u8> {
+        let options_bytes: Vec<u8> = self.options.into();
+        let options_size: u32 = options_bytes.len() as u32;
         [
             self.id.unwrap().as_slice(),
             self.uuid.unwrap().as_slice(),
+            &options_size.to_be_bytes(),
+            &options_bytes,
             &self.body,
         ]
         .concat()
     }
+}
 
-    pub fn get_init_settings(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let body = self.body.as_slice();
-        let ecdsa_pub_key_bytes = &body[0..=48];
-        let ecdh_pub_key_bytes = &body[49..=97];
-        let sig_bytes = &body[98..];
-
-        let ecdsa_pub_key = VerifyingKey::from_sec1_bytes(ecdsa_pub_key_bytes)?;
-        let signature = Signature::from_der(sig_bytes)?;
-
-        if ecdsa_pub_key.verify(ecdh_pub_key_bytes, &signature).is_err() {
-            return Err("failed to verify ecdh key".into());
-        }
-
-        let ecdh_pub_key = PublicKey::from_sec1_bytes(ecdsa_pub_key_bytes)?;
-        let shared_secret = APPSTATE.read()?.server_keys.ecdh.priv_key.diffie_hellman(&ecdh_pub_key);
-
-
-        Ok(())
-    }
-
+impl DataFrame {
     pub fn new(body: Vec<u8>) -> Self {
         DataFrame {
             body,
@@ -216,8 +434,7 @@ impl TryFrom<Vec<u8>> for DataFrame {
             id,
             uuid,
             body,
-            frame_type: None,
-            init_frame_opts: None,
+            options: Options::default(),
         })
     }
 }
@@ -241,8 +458,7 @@ impl TryFrom<&Vec<u8>> for DataFrame {
             id,
             uuid,
             body,
-            frame_type: None,
-            init_frame_opts: None,
+            options: Options::default(),
         })
     }
 }
