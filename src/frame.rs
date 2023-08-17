@@ -151,20 +151,20 @@ impl InitFrame {
         while let Some(option_slice) = options_bytes[current_opt_index..]
             .iter()
             .enumerate()
-            .find(|(_, ascii_code)| **ascii_code == b'\xAE')
-            .map(|(index, _)| &options_bytes[current_opt_index..index])
+            .find(|(_, ascii_code)| **ascii_code == 174)
+            .map(|(index, _)| &options_bytes[current_opt_index..current_opt_index + index])
         {
             #[cfg(test)]
             println!(
-                "length of option, current_opt_index: {}, {}",
-                option_slice.len(),
+                "length of option, current_opt_index: {:?}, {}",
+                option_slice,
                 current_opt_index
             );
 
             let equal_sign_pos = option_slice
                 .iter()
-                .position(|ascii_code| *ascii_code == b'=')
-                .unwrap();
+                .position(|ascii_code| *ascii_code == 61)
+                .expect("could not find '=' in option");
             let header_key = &option_slice[..equal_sign_pos];
             let header_value = &option_slice[equal_sign_pos + 1..option_slice.len()- 1];
 
