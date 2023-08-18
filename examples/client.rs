@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             break;
         };
         let res = safenet::client::http::echo_server(peer, &msg)?;
-        println!("{}", res.as_str()?);
+        println!("{}", res);
     }
 
     Ok(())

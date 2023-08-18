@@ -147,8 +147,8 @@ fn init_conn(req: Request) -> Response {
 
 #[post("/conn/test")]
 fn msg(req: Request) -> Response {
-    let req_bytes = req.get_raw_body();
-    let data_frame: Result<DataFrame, String> = req_bytes.as_slice().try_into();
+    let req_bytes = req.get_raw_body().clone();
+    let data_frame: Result<DataFrame, String> = req_bytes.into_boxed_slice().try_into();
     if data_frame.is_err() {
         return Response::new()
             .body(vec![])
@@ -205,15 +205,16 @@ fn msg(req: Request) -> Response {
 
 #[post("/server/echo")]
 fn server_msg(req: Request) -> Response {
-    let req_bytes = req.get_raw_body();
-    let data_frame: Result<DataFrame, String> = req_bytes.as_slice().try_into();
+    let req_bytes = req.get_raw_body().clone();
+    let data_frame: Result<DataFrame, String> = req_bytes.into_boxed_slice().try_into();
     if data_frame.is_err() {
+        log::trace!("failed to parse data frame");
         return Response::new()
             .body(vec![])
             .mime("fuck/off")
             .status_line("HTTP/1.1 42069 fuck_u");
     }
-    let mut data_frame = data_frame.unwrap();
+    let mut data_frame = data_frame.expect("failed to parse data");
 
     /*
     let id = &req_bytes[0..=2];
@@ -244,18 +245,19 @@ fn server_msg(req: Request) -> Response {
 
     let dec_body = data_frame.decode_frame();
 
-    if dec_body.is_ok() {
-        let msg = std::str::from_utf8(data_frame.body).unwrap();
+    if let Err(e) = dec_body {
+        log::error!("failed to decrypt frame: {e}");
+        Response::new()
+            .body(vec![])
+            .mime("fuck/u")
+            .status_line("HTTP/1.1 42069 fuck_me")
+    } else {
+        let msg = std::str::from_utf8(&data_frame.body).unwrap();
         let response_frame = DataFrame::new(&*format!("got: {msg}").into_bytes());
         Response::new()
             .body(response_frame.to_bytes())
             .mime("love/u")
             .status_line("HTTP/1.1 200 OK")
-    } else {
-        Response::new()
-            .body(vec![])
-            .mime("fuck/u")
-            .status_line("HTTP/1.1 42069 fuck_me")
     }
 }
 

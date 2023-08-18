@@ -239,5 +239,8 @@ pub fn echo_server<T: Into<String>>(
         .with_body(data_frame.to_bytes())
         .send()?;
 
-    Ok(String::new())
+    let mut response_frame: DataFrame = (<&[u8] as std::convert::Into<Box<[u8]>>>::into(res.as_bytes())).try_into().unwrap();
+    response_frame.decode_frame()?;
+
+    Ok(std::str::from_utf8(&response_frame.body).unwrap().to_string())
 }
