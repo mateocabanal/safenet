@@ -238,14 +238,14 @@ mod tests {
                     .try_into()?,
             ),
             uuid: Some(first_pair.uuid.into_bytes()),
-            body: b"Hello Server!".to_vec(),
+            body: Box::new(*b"Hello Server!"),
             options: Options::default(),
         };
 
         println!("encoding frame ...");
         encrypted_frame.encode_frame(first_pair.uuid)?;
         println!("decoding frame ...");
-        encrypted_frame.decode_frame(first_pair.uuid)?;
+        encrypted_frame.decode_frame()?;
 
         Ok(())
     }
@@ -254,7 +254,7 @@ mod tests {
     fn verify_init_frame() -> Result<(), Box<dyn std::error::Error>> {
         let init_frame = InitFrame::default();
         let init_frame_2 = InitFrame::default();
-        init_frame.from_peer(&init_frame_2.to_bytes());
+        init_frame.from_peer(&init_frame_2.to_bytes()).unwrap();
         Ok(())
     }
 }
