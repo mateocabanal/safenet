@@ -15,7 +15,7 @@ use p384::{
 use tinyhttp::prelude::*;
 use uuid::Uuid;
 
-use crate::frame::{DataFrame, InitFrame, Frame};
+use crate::frame::{DataFrame, Frame, InitFrame};
 use crate::{app_state::ClientKeypair, crypto::key_exchange::ECDHKeys, APPSTATE};
 
 #[get("/keys/pub")]
@@ -124,17 +124,17 @@ fn init_conn(req: Request) -> Response {
     //        .to_bytes();
     //    let srv_ecdh_bytes = new_ecdh.pub_key.to_encoded_point(true).to_bytes();
 
-//    let srv_ecdh_sig: Signature = app_state.server_keys.ecdsa.priv_key.sign(&srv_ecdh_bytes);
-//    let server_uuid = app_state.uuid.as_bytes();
-//    let body = [
-//        id,
-//        server_uuid,
-//        &srv_ecdsa_pub_key,
-//        &srv_ecdh_bytes,
-//        srv_ecdh_sig.to_der().as_bytes(),
-//    ]
-//    .to_vec()
-//    .concat();
+    //    let srv_ecdh_sig: Signature = app_state.server_keys.ecdsa.priv_key.sign(&srv_ecdh_bytes);
+    //    let server_uuid = app_state.uuid.as_bytes();
+    //    let body = [
+    //        id,
+    //        server_uuid,
+    //        &srv_ecdsa_pub_key,
+    //        &srv_ecdh_bytes,
+    //        srv_ecdh_sig.to_der().as_bytes(),
+    //    ]
+    //    .to_vec()
+    //    .concat();
 
     //let new_user_ecdsa_pub_key = &body_bytes[3..=52];
     //log::trace!("written response!");
@@ -148,7 +148,7 @@ fn init_conn(req: Request) -> Response {
 #[post("/conn/test")]
 fn msg(req: Request) -> Response {
     let req_bytes = req.get_raw_body();
-    let data_frame: Result<DataFrame, String> = req_bytes.try_into();
+    let data_frame: Result<DataFrame, String> = req_bytes.as_slice().try_into();
     if data_frame.is_err() {
         return Response::new()
             .body(vec![])
@@ -180,8 +180,7 @@ fn msg(req: Request) -> Response {
     //    let dec_body = dec_key
     //        .cipher
     //        .decrypt(generic_array::GenericArray::from_slice(&buf), body);
-    let uuid = Uuid::from_bytes(data_frame.uuid.unwrap());
-    let dec_body = data_frame.decode_frame(uuid);
+    let dec_body = data_frame.decode_frame();
 
     if dec_body.is_ok() {
         let id = std::str::from_utf8(data_frame.id.as_ref().unwrap()).unwrap();
@@ -196,7 +195,7 @@ fn msg(req: Request) -> Response {
             .status_line("HTTP/1.1 403 Forbidden")
             .body("".as_bytes().to_vec())
     } else {
-        log::error!("failed to decrypt msg! uuid: {}", uuid);
+        log::error!("failed to decrypt msg!");
         Response::new()
             .mime("fuck/me")
             .status_line("HTTP/1.1 42069 fuck_me")
@@ -207,7 +206,7 @@ fn msg(req: Request) -> Response {
 #[post("/server/echo")]
 fn server_msg(req: Request) -> Response {
     let req_bytes = req.get_raw_body();
-    let data_frame: Result<DataFrame, String> = req_bytes.try_into();
+    let data_frame: Result<DataFrame, String> = req_bytes.as_slice().try_into();
     if data_frame.is_err() {
         return Response::new()
             .body(vec![])
@@ -243,13 +242,13 @@ fn server_msg(req: Request) -> Response {
         .decrypt(generic_array::GenericArray::from_slice(&buf), body);
     */
 
-    let uuid = Uuid::from_bytes(data_frame.uuid.unwrap());
-    let dec_body = data_frame.decode_frame(uuid);
+    let dec_body = data_frame.decode_frame();
 
     if dec_body.is_ok() {
-        let msg = String::from_utf8(data_frame.body).unwrap();
+        let msg = std::str::from_utf8(data_frame.body).unwrap();
+        let response_frame = DataFrame::new(&*format!("got: {msg}").into_bytes());
         Response::new()
-            .body(format!("Got it, {msg}").as_bytes().to_vec())
+            .body(response_frame.to_bytes())
             .mime("love/u")
             .status_line("HTTP/1.1 200 OK")
     } else {
@@ -284,12 +283,4 @@ pub fn start_server(socket: TcpListener) {
     std::thread::sleep(std::time::Duration::from_millis(500));
 
     APPSTATE.write().unwrap().is_http_server_on = true;
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn check_init_frame() -> Result<(), Box<dyn std::error::Error>> {
-        Ok(())
-    }
 }

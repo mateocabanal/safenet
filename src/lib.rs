@@ -1,9 +1,9 @@
 pub mod app_state;
 pub mod client;
+pub mod config;
 pub mod crypto;
 pub mod frame;
 pub mod server;
-pub mod config;
 
 pub use crate::app_state::APPSTATE;
 use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
@@ -13,7 +13,11 @@ mod tests {
     use chacha20poly1305::{AeadCore, ChaCha20Poly1305};
     use p384::{ecdsa::Signature, ecdsa::VerifyingKey, PublicKey};
 
-    use crate::{app_state::ClientKeypair, crypto::aes::ChaChaCipher, frame::{DataFrame, Options, InitFrame, Frame}};
+    use crate::{
+        app_state::ClientKeypair,
+        crypto::aes::ChaChaCipher,
+        frame::{DataFrame, Frame, InitFrame, Options},
+    };
 
     use super::*;
 
@@ -235,7 +239,7 @@ mod tests {
             ),
             uuid: Some(first_pair.uuid.into_bytes()),
             body: b"Hello Server!".to_vec(),
-            options: Options::default()
+            options: Options::default(),
         };
 
         println!("encoding frame ...");

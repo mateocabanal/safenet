@@ -83,59 +83,59 @@ pub fn start_tunnel(peer: SocketAddr) -> Result<Response, Box<dyn std::error::Er
 
     let body_bytes = res.clone().into_bytes();
     init_frame.from_peer(&body_bytes).unwrap();
-//    log::trace!("len of res: {}", &body_bytes.len());
-//    let id = &body_bytes[0..=2];
-//    let server_uuid = Uuid::from_slice(&body_bytes[3..=18]).unwrap();
-//    let client_ecdsa_key = VerifyingKey::from_sec1_bytes(&body_bytes[19..=67]).unwrap();
-//    let client_ecdh_key_bytes = &body_bytes[68..=116];
-//    let client_signature = Signature::from_der(&body_bytes[117..]).unwrap();
-//    //log::trace!("server res: key: {:#?}", client_signature);
-//    if client_ecdsa_key
-//        .verify(client_ecdh_key_bytes, &client_signature)
-//        .is_err()
-//    {
-//        log::trace!("SIG FAILED :(");
-//    }
-//
-//    let client_ecdh_key = PublicKey::from_sec1_bytes(&client_ecdh_key_bytes).unwrap();
-//    let client_server_shared_secret = ecdh_keys.priv_key.diffie_hellman(&client_ecdh_key);
-//
-//    log::trace!(
-//        "client: secret: {:#?}",
-//        &client_server_shared_secret.raw_secret_bytes()
-//    );
-//
-//    log::trace!("added uuid to clientkeypair: {}", &server_uuid);
-//
-//    let is_preexisting = APPSTATE
-//        .read()
-//        .expect("failed to get read lock")
-//        .client_keys
-//        .iter()
-//        .position(|i| i.uuid == server_uuid);
-//
-//    if let Some(s) = is_preexisting {
-//        APPSTATE
-//            .write()
-//            .expect("failed to get write lock")
-//            .client_keys
-//            .remove(s);
-//    }
-//
-//    let client_keypair = ClientKeypair::new()
-//        .id(std::str::from_utf8(id)
-//            .expect("failed to parse id")
-//            .to_string())
-//        .ecdsa(client_ecdsa_key)
-//        .ecdh(client_server_shared_secret)
-//        .uuid(server_uuid)
-//        .ip(peer);
-//
-//    APPSTATE
-//        .write()
-//        .expect("failed to get write lock")
-//        .client_keys
-//        .push(client_keypair);
+    //    log::trace!("len of res: {}", &body_bytes.len());
+    //    let id = &body_bytes[0..=2];
+    //    let server_uuid = Uuid::from_slice(&body_bytes[3..=18]).unwrap();
+    //    let client_ecdsa_key = VerifyingKey::from_sec1_bytes(&body_bytes[19..=67]).unwrap();
+    //    let client_ecdh_key_bytes = &body_bytes[68..=116];
+    //    let client_signature = Signature::from_der(&body_bytes[117..]).unwrap();
+    //    //log::trace!("server res: key: {:#?}", client_signature);
+    //    if client_ecdsa_key
+    //        .verify(client_ecdh_key_bytes, &client_signature)
+    //        .is_err()
+    //    {
+    //        log::trace!("SIG FAILED :(");
+    //    }
+    //
+    //    let client_ecdh_key = PublicKey::from_sec1_bytes(&client_ecdh_key_bytes).unwrap();
+    //    let client_server_shared_secret = ecdh_keys.priv_key.diffie_hellman(&client_ecdh_key);
+    //
+    //    log::trace!(
+    //        "client: secret: {:#?}",
+    //        &client_server_shared_secret.raw_secret_bytes()
+    //    );
+    //
+    //    log::trace!("added uuid to clientkeypair: {}", &server_uuid);
+    //
+    //    let is_preexisting = APPSTATE
+    //        .read()
+    //        .expect("failed to get read lock")
+    //        .client_keys
+    //        .iter()
+    //        .position(|i| i.uuid == server_uuid);
+    //
+    //    if let Some(s) = is_preexisting {
+    //        APPSTATE
+    //            .write()
+    //            .expect("failed to get write lock")
+    //            .client_keys
+    //            .remove(s);
+    //    }
+    //
+    //    let client_keypair = ClientKeypair::new()
+    //        .id(std::str::from_utf8(id)
+    //            .expect("failed to parse id")
+    //            .to_string())
+    //        .ecdsa(client_ecdsa_key)
+    //        .ecdh(client_server_shared_secret)
+    //        .uuid(server_uuid)
+    //        .ip(peer);
+    //
+    //    APPSTATE
+    //        .write()
+    //        .expect("failed to get write lock")
+    //        .client_keys
+    //        .push(client_keypair);
 
     Ok(res)
 }
@@ -146,7 +146,8 @@ pub fn msg<T: Into<String>>(
 ) -> Result<Response, Box<dyn std::error::Error>> {
     let peer_addr_str = peer.to_string();
 
-    let mut data_frame = DataFrame::new(msg.into().as_bytes().to_vec());
+    let msg = msg.into();
+    let mut data_frame = DataFrame::new(msg.as_bytes());
 
     //    let app_state = APPSTATE.read().expect("failed to get read lock");
     //    let id = app_state.user_id.as_ref();
@@ -193,10 +194,11 @@ pub fn msg<T: Into<String>>(
 pub fn echo_server<T: Into<String>>(
     peer: SocketAddr,
     msg: T,
-) -> Result<Response, Box<dyn std::error::Error>> {
+) -> Result<String, Box<dyn std::error::Error>> {
     let peer_addr_str = peer.to_string();
+    let msg = msg.into();
 
-    let mut data_frame = DataFrame::new(msg.into().as_bytes().to_vec());
+    let mut data_frame = DataFrame::new(msg.as_bytes());
 
     //    let app_state = APPSTATE.read().expect("failed to get read lock");
     //    let id = app_state.user_id.as_ref();
@@ -237,5 +239,5 @@ pub fn echo_server<T: Into<String>>(
         .with_body(data_frame.to_bytes())
         .send()?;
 
-    Ok(res)
+    Ok(String::new())
 }

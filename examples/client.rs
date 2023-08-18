@@ -1,6 +1,6 @@
-use safenet::APPSTATE;
 use clap::Parser;
 use dialoguer::Input;
+use safenet::APPSTATE;
 
 #[derive(Parser, Debug)]
 #[command(author, version)]
@@ -12,11 +12,14 @@ struct Args {
     port: u32,
 
     #[arg(short, long)]
-    id: String
+    id: String,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Info).env().init()?;
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Info)
+        .env()
+        .init()?;
     let args = Args::parse();
     APPSTATE.write()?.user_id = args.id.as_bytes().try_into()?;
     let peer = args.peer.parse()?;
@@ -25,11 +28,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         log::debug!("could not connect to peer, sleeping 2 secs");
         std::thread::sleep(std::time::Duration::from_secs(2));
         result = safenet::client::http::start_tunnel(peer);
-    };
+    }
     loop {
-        let msg = Input::<String>::new()
-            .with_prompt("> ")
-            .interact_text()?;
+        let msg = Input::<String>::new().with_prompt("> ").interact_text()?;
         if msg == "quit" {
             break;
         };
@@ -37,5 +38,5 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("{}", res.as_str()?);
     }
 
-    Ok(()) 
+    Ok(())
 }

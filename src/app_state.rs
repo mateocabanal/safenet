@@ -1,10 +1,10 @@
-use crate::crypto::{key_exchange::{ECDHKeys, ECDSAKeys}, aes::ChaChaCipher};
-use once_cell::sync::Lazy;
-use p384::{
-    ecdh::SharedSecret,
-    ecdsa::VerifyingKey,
+use crate::crypto::{
+    aes::ChaChaCipher,
+    key_exchange::{ECDHKeys, ECDSAKeys},
 };
-use std::{sync::RwLock, net::SocketAddr};
+use once_cell::sync::Lazy;
+use p384::{ecdh::SharedSecret, ecdsa::VerifyingKey};
+use std::{net::SocketAddr, sync::RwLock};
 use uuid::Uuid;
 
 pub struct AppState {
@@ -13,7 +13,7 @@ pub struct AppState {
     pub is_http_server_on: bool,
     pub server_addr: Option<SocketAddr>,
     pub user_id: [u8; 3],
-    pub uuid: Uuid
+    pub uuid: Uuid,
 }
 
 unsafe impl Send for AppState {}
@@ -29,7 +29,7 @@ impl AppState {
             server_addr: None,
             is_http_server_on: false,
             uuid: Uuid::new_v4(),
-            user_id: [0u8; 3]
+            user_id: [0u8; 3],
         }
     }
 }
@@ -40,12 +40,19 @@ pub struct ClientKeypair {
     pub ecdh: Option<SharedSecret>,
     pub chacha: Option<ChaChaCipher>,
     pub uuid: Uuid,
-    pub ip: Option<SocketAddr>
+    pub ip: Option<SocketAddr>,
 }
 
 impl std::fmt::Debug for ClientKeypair {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "(id: {}\n, ecdsa: {:?}\n, ecdh: {:?}\n, uuid: {}\n)", self.id.as_ref().unwrap(), self.ecdsa.unwrap().to_encoded_point(true).to_bytes(), self.ecdh.as_ref().unwrap().raw_secret_bytes(), self.uuid)
+        write!(
+            f,
+            "(id: {}\n, ecdsa: {:?}\n, ecdh: {:?}\n, uuid: {}\n)",
+            self.id.as_ref().unwrap(),
+            self.ecdsa.unwrap().to_encoded_point(true).to_bytes(),
+            self.ecdh.as_ref().unwrap().raw_secret_bytes(),
+            self.uuid
+        )
     }
 }
 
@@ -57,8 +64,8 @@ impl ClientKeypair {
             ecdh: None,
             chacha: None,
             uuid: Uuid::new_v4(),
-            ip: None
-        }
+            ip: None,
+        };
     }
 
     pub fn id(mut self, id: String) -> Self {
@@ -84,9 +91,8 @@ impl ClientKeypair {
 
     pub fn uuid(mut self, uuid: Uuid) -> Self {
         self.uuid = uuid;
-        self 
+        self
     }
-
 }
 
 pub struct ServerKeys {

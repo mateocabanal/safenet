@@ -29,14 +29,17 @@ pub enum FrameType {
 #[derive(Debug, Clone, Copy)]
 pub struct Options {
     frame_type: FrameType,
-    ip_addr: Option<IpAddr>,
+    ip_addr: Option<SocketAddr>,
 }
 
 impl Default for Options {
     fn default() -> Self {
         Options {
             frame_type: FrameType::Data,
-            ip_addr: local_ip().ok(),
+            ip_addr: APPSTATE
+                .try_read()
+                .expect("could not acquire read handle on appstate")
+                .server_addr,
         }
     }
 }
@@ -50,19 +53,11 @@ impl Into<Vec<u8>> for Options {
             "".to_string()
         };
 
-        let bytes = [
+        [
             header_as_string.into_bytes(),
             ip_addr_as_string.into_bytes(),
         ]
-        .concat();
-
-        #[cfg(test)]
-        println!(
-            "option bytes as string: {}",
-            std::str::from_utf8(&bytes).unwrap()
-        );
-
-        bytes
+        .concat()
     }
 }
 
@@ -96,6 +91,7 @@ impl Frame for InitFrame {
     }
 }
 
+#[allow(clippy::field_reassign_with_default)]
 impl Default for InitFrame {
     fn default() -> InitFrame {
         let appstate_r = APPSTATE
@@ -103,10 +99,9 @@ impl Default for InitFrame {
             .expect("could not get read handle on appstate");
         let id = appstate_r.user_id;
         let uuid = appstate_r.uuid.to_bytes_le();
-        let options = Options {
-            frame_type: FrameType::Init,
-            ip_addr: local_ip().ok(),
-        };
+
+        let mut options = Options::default();
+        options.frame_type = FrameType::Init;
         let ecdsa_pub_key = appstate_r.server_keys.ecdsa.pub_key;
         let ecdh_keys = ECDHKeys::init();
         let ecdh_signature: Signature = appstate_r
@@ -157,8 +152,7 @@ impl InitFrame {
             #[cfg(test)]
             println!(
                 "length of option, current_opt_index: {:?}, {}",
-                option_slice,
-                current_opt_index
+                option_slice, current_opt_index
             );
 
             let equal_sign_pos = option_slice
@@ -166,7 +160,7 @@ impl InitFrame {
                 .position(|ascii_code| *ascii_code == 61)
                 .expect("could not find '=' in option");
             let header_key = &option_slice[..equal_sign_pos];
-            let header_value = &option_slice[equal_sign_pos + 1..option_slice.len()- 1];
+            let header_value = &option_slice[equal_sign_pos + 1..option_slice.len() - 1];
 
             let header_key_str = std::str::from_utf8(header_key)
                 .expect("not a valid str")
@@ -199,7 +193,7 @@ impl InitFrame {
             2u8..=u8::MAX => return Err("frame_type out of bounds".into()),
         };
 
-        let ip_addr_of_peer = options_map.get("ip_addr").expect("no ip value sent");
+        let ip_addr_of_peer = options_map.get("ip_addr");
         let init_vars_slice = &body[options_len as usize..];
 
         let client_ecdsa_key = VerifyingKey::from_sec1_bytes(&init_vars_slice[0..=48]).unwrap();
@@ -244,40 +238,44 @@ impl InitFrame {
                 .to_string())
             .ecdsa(client_ecdsa_key)
             .ecdh(peer_shared_secret)
-            .ip(ip_addr_of_peer.parse().unwrap())
             .uuid(uuid);
 
-        APPSTATE
+        let client_keys = &mut APPSTATE
             .try_write()
             .expect("failed to get write lock")
-            .client_keys
-            .push(client_keypair);
+            .client_keys;
+
+        if let Some(ip_addr) = ip_addr_of_peer {
+            client_keys.push(client_keypair.ip(ip_addr.parse().expect("invalid socketaddr")));
+        } else {
+            client_keys.push(client_keypair);
+        }
 
         Ok(())
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct DataFrame {
+pub struct DataFrame<'a> {
     pub id: Option<[u8; 3]>,
     pub uuid: Option<[u8; 16]>,
-    pub body: Vec<u8>,
+    pub body: &'a [u8],
     pub options: Options,
 }
 
 #[allow(clippy::derivable_impls)]
-impl Default for DataFrame {
+impl<'a> Default for DataFrame<'a> {
     fn default() -> Self {
         DataFrame {
             id: None,
             uuid: None,
-            body: vec![],
+            body: &[0u8; 0],
             options: Options::default(),
         }
     }
 }
 
-impl Frame for DataFrame {
+impl<'a> Frame for DataFrame<'a> {
     fn to_bytes(&self) -> Vec<u8> {
         let options_bytes: Vec<u8> = self.options.into();
         let options_size: u32 = options_bytes.len() as u32;
@@ -292,8 +290,9 @@ impl Frame for DataFrame {
     }
 }
 
-impl DataFrame {
-    pub fn new(body: Vec<u8>) -> Self {
+impl<'a> DataFrame<'a> {
+    pub fn new(body: impl Into<&'a [u8]>) -> Self {
+        let body = body.into();
         DataFrame {
             body,
             ..Default::default()
@@ -327,13 +326,13 @@ impl DataFrame {
             .cipher
             .encrypt(
                 generic_array::GenericArray::from_slice(&buf),
-                self.body.as_slice(),
+                self.body,
             )
             .unwrap();
 
         self.id = Some(app_state.user_id);
         self.uuid = Some(*app_state.uuid.as_bytes());
-        self.body = encrypted_body;
+        self.body = &encrypted_body;
 
         Ok(())
     }
@@ -367,21 +366,23 @@ impl DataFrame {
             .cipher
             .encrypt(
                 generic_array::GenericArray::from_slice(&buf),
-                self.body.as_slice(),
+                self.body
             )
             .unwrap();
 
         self.id = Some(app_state.user_id);
         self.uuid = Some(*app_state.uuid.as_bytes());
-        self.body = encrypted_body;
+        self.body = &encrypted_body;
 
         Ok(())
     }
 
-    pub fn decode_frame(
-        &mut self,
-        target_uuid: uuid::Uuid,
-    ) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn decode_frame(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let frame = self.body;
+        self.id = Some(frame[0..=2].try_into().unwrap());
+        self.uuid = Some(frame[3..=18].try_into().unwrap());
+        let target_uuid = Uuid::from_bytes(self.uuid.unwrap());
+
         let app_state = APPSTATE.read()?;
         let target_keychain = app_state
             .client_keys
@@ -405,23 +406,23 @@ impl DataFrame {
             .cipher
             .decrypt(
                 generic_array::GenericArray::from_slice(&buf),
-                self.body.as_slice(),
+                self.body
             )
             .unwrap();
 
-        self.body = decrypted_body;
+        self.body = &decrypted_body;
 
         Ok(())
     }
 }
 
-impl TryFrom<Vec<u8>> for DataFrame {
+impl<'a> TryFrom<&'a [u8]> for DataFrame<'a> {
     type Error = String;
-    fn try_from(input: Vec<u8>) -> Result<DataFrame, String> {
-        let frame_slice = input.as_slice();
+    fn try_from(input: &'a [u8]) -> Result<DataFrame, String> {
+        let frame_slice = input;
         let id = frame_slice[0..=2].try_into().unwrap();
         let uuid = frame_slice[3..=18].try_into().unwrap();
-        let body = frame_slice[19..].to_vec();
+        let body = &frame_slice[19..];
 
         if std::str::from_utf8(&frame_slice[0..=3]).is_err() {
             return Err("id is not a valid string".to_owned());
@@ -439,26 +440,26 @@ impl TryFrom<Vec<u8>> for DataFrame {
     }
 }
 
-impl TryFrom<&Vec<u8>> for DataFrame {
-    type Error = String;
-    fn try_from(input: &Vec<u8>) -> Result<DataFrame, String> {
-        let frame_slice = input.as_slice();
-        let id = frame_slice[0..=2].try_into().unwrap();
-        let uuid = frame_slice[3..=18].try_into().unwrap();
-        let body = frame_slice[19..].to_vec();
-
-        if std::str::from_utf8(&frame_slice[0..=3]).is_err() {
-            return Err("id is not a valid string".to_owned());
-        };
-
-        let id = Some(id);
-        let uuid = Some(uuid);
-
-        Ok(DataFrame {
-            id,
-            uuid,
-            body,
-            options: Options::default(),
-        })
-    }
-}
+//impl TryFrom<&Vec<u8>> for DataFrame {
+//    type Error = String;
+//    fn try_from(input: &Vec<u8>) -> Result<DataFrame, String> {
+//        let frame_slice = input.as_slice();
+//        let id = frame_slice[0..=2].try_into().unwrap();
+//        let uuid = frame_slice[3..=18].try_into().unwrap();
+//        let body = frame_slice[19..].to_vec();
+//
+//        if std::str::from_utf8(&frame_slice[0..=3]).is_err() {
+//            return Err("id is not a valid string".to_owned());
+//        };
+//
+//        let id = Some(id);
+//        let uuid = Some(uuid);
+//
+//        Ok(DataFrame {
+//            id,
+//            uuid,
+//            body,
+//            options: Options::default(),
+//        })
+//    }
+//}

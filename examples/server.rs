@@ -1,6 +1,6 @@
 use std::net::TcpListener;
-use std::time::Duration;
 use std::thread::sleep;
+use std::time::Duration;
 
 use clap::Parser;
 use local_ip_address::local_ip;
