@@ -6,12 +6,13 @@ pub mod frame;
 pub mod server;
 
 pub use crate::app_state::APPSTATE;
-use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
 
 #[cfg(test)]
 mod tests {
-    use chacha20poly1305::{AeadCore, ChaCha20Poly1305};
+use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
+    use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
     use p384::{ecdsa::Signature, ecdsa::VerifyingKey, PublicKey};
+    use simple_logger::SimpleLogger;
 
     use crate::{
         app_state::ClientKeypair,
@@ -20,6 +21,11 @@ mod tests {
     };
 
     use super::*;
+
+    #[allow(unused_must_use)]
+    fn setup_logger() {
+        SimpleLogger::new().with_level(log::LevelFilter::Trace).env().init();
+    }
 
     fn start_http_server() {
         APPSTATE.write().expect("failed to get write lock").user_id =
@@ -33,8 +39,8 @@ mod tests {
     // NOTE: Cannot hold a .write() lock on APPSTATE
     fn generate_keypair(id: String) -> ClientKeypair {
         let app_state = APPSTATE.read().unwrap();
-        let ecdsa_keypair = crypto::key_exchange::ECDSAKeys::init();
-        let ecdh_keypair = crypto::key_exchange::ECDHKeys::init();
+        let ecdsa_keypair = ECDSAKeys::init();
+        let ecdh_keypair = ECDHKeys::init();
 
         ClientKeypair::new()
             .ecdsa(ecdsa_keypair.pub_key)
@@ -53,7 +59,7 @@ mod tests {
     fn test_ecdsa() {
         use p384::ecdsa::signature::{Signer, Verifier};
 
-        let keys = crypto::key_exchange::ECDSAKeys::init();
+        let keys = ECDSAKeys::init();
         let msg = b"Hi ECDSA!";
         let sig: Signature = keys.priv_key.sign(msg);
         assert!(keys.pub_key.verify(msg, &sig).is_ok())
@@ -61,8 +67,8 @@ mod tests {
 
     #[test]
     fn test_ecdh() {
-        let alice_keys = crypto::key_exchange::ECDHKeys::init();
-        let bob_keys = crypto::key_exchange::ECDHKeys::init();
+        let alice_keys = ECDHKeys::init();
+        let bob_keys = ECDHKeys::init();
         let alice_shared = alice_keys.priv_key.diffie_hellman(&bob_keys.pub_key);
         let bob_shared = bob_keys.priv_key.diffie_hellman(&alice_keys.pub_key);
         // assert_ne!(alice_keys.priv_key, bob_keys.priv_key);
@@ -79,11 +85,11 @@ mod tests {
         use p384::ecdsa::signature::{Signer, Verifier};
         use p384::elliptic_curve::sec1::ToEncodedPoint;
 
-        let alice_ecdsa = crypto::key_exchange::ECDSAKeys::init();
-        let bob_ecdsa = crypto::key_exchange::ECDSAKeys::init();
+        let alice_ecdsa = ECDSAKeys::init();
+        let bob_ecdsa = ECDSAKeys::init();
 
-        let alice_ecdh = crypto::key_exchange::ECDHKeys::init();
-        let bob_ecdh = crypto::key_exchange::ECDHKeys::init();
+        let alice_ecdh = ECDHKeys::init();
+        let bob_ecdh = ECDHKeys::init();
 
         let alice_ecdh_pub_key_sec1_bytes = alice_ecdh.pub_key.to_encoded_point(true).to_bytes();
         let bob_ecdh_pub_key_sec1_bytes = bob_ecdh.pub_key.to_encoded_point(true).to_bytes();
@@ -136,7 +142,7 @@ mod tests {
 
         let plaintext = "hi bob!";
 
-        let nonce = ChaCha20Poly1305::generate_nonce(&mut rand::rngs::OsRng);
+        let nonce = XChaCha20Poly1305::generate_nonce(&mut rand::rngs::OsRng);
         let enc_plaintext = alice_cipher
             .cipher
             .encrypt(&nonce, plaintext.as_bytes())
@@ -210,7 +216,8 @@ mod tests {
     }
 
     #[test]
-    fn test_data_frame_struct() -> Result<(), Box<dyn std::error::Error>> {
+    fn verify_data_frame() -> Result<(), Box<dyn std::error::Error>> {
+        setup_logger();
         let aaa_keys = generate_keypair(String::from("aaa"));
         let bbb_keys = generate_keypair(String::from("bbb"));
 
@@ -228,25 +235,38 @@ mod tests {
             .iter()
             .find(|i| i.id.as_ref().ok_or("failed to get id as bytes").unwrap() == "aaa")
             .ok_or("could not find keypair")?;
-        let mut encrypted_frame = DataFrame {
-            id: Some(
-                first_pair
-                    .id
-                    .as_ref()
-                    .ok_or("could not get id")?
-                    .as_bytes()
-                    .try_into()?,
-            ),
-            uuid: Some(first_pair.uuid.into_bytes()),
-            body: Box::new(*b"Hello Server!"),
-            options: Options::default(),
-        };
+
+        log::info!("first_pair uuid: {}", first_pair.uuid);
+
+
+        
+        let second_pair = app_state
+            .client_keys
+            .iter()
+            .find(|i| i.id.as_ref().ok_or("failed to get id as bytes").unwrap() == "bbb")
+            .ok_or("could not find keypair")?;
+
+        log::info!("second_pair uuid: {}", second_pair.uuid);
+
+        let mut encrypted_frame = DataFrame::new(b"Hello Server".as_slice());
+
 
         println!("encoding frame ...");
         encrypted_frame.encode_frame(first_pair.uuid)?;
+        let enc_body = encrypted_frame.to_bytes();
         println!("decoding frame ...");
-        encrypted_frame.decode_frame()?;
+        let mut recipient_frame = DataFrame::try_from(enc_body.into_boxed_slice())?;
+        recipient_frame.decode_frame_from_keypair(first_pair)?;
 
+        Ok(())
+    }
+
+    #[test]
+    fn verify_options() -> Result<(), Box<dyn std::error::Error>> {
+        let options = Options::default();
+        let bytes: Vec<u8> = options.into();
+        let options_2 = Options::try_from(bytes.as_slice())?;
+        assert_eq!(options, options_2);
         Ok(())
     }
 

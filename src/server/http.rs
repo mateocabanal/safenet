@@ -253,7 +253,8 @@ fn server_msg(req: Request) -> Response {
             .status_line("HTTP/1.1 42069 fuck_me")
     } else {
         let msg = std::str::from_utf8(&data_frame.body).unwrap();
-        let response_frame = DataFrame::new(&*format!("got: {msg}").into_bytes());
+        let mut response_frame = DataFrame::new(&*format!("got: {msg}").into_bytes());
+        response_frame.encode_frame(Uuid::from_bytes(data_frame.uuid.unwrap())).unwrap();
         Response::new()
             .body(response_frame.to_bytes())
             .mime("love/u")
