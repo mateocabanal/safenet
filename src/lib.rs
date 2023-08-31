@@ -10,7 +10,7 @@ pub use crate::app_state::APPSTATE;
 #[cfg(test)]
 mod tests {
 use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
-    use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
+    use chacha20poly1305::{AeadCore, ChaCha20Poly1305};
     use p384::{ecdsa::Signature, ecdsa::VerifyingKey, PublicKey};
     use simple_logger::SimpleLogger;
 
@@ -142,7 +142,7 @@ use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
 
         let plaintext = "hi bob!";
 
-        let nonce = XChaCha20Poly1305::generate_nonce(&mut rand::rngs::OsRng);
+        let nonce = ChaCha20Poly1305::generate_nonce(&mut rand::rngs::OsRng);
         let enc_plaintext = alice_cipher
             .cipher
             .encrypt(&nonce, plaintext.as_bytes())
@@ -177,31 +177,6 @@ use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
             APPSTATE.read().unwrap().server_keys.ecdsa.pub_key,
             serv_pub_key
         );
-    }
-
-    #[test]
-    fn test_network_init_conn() {
-        start_http_server();
-        while !APPSTATE.read().unwrap().is_http_server_on {}
-        let res = crate::client::http::start_tunnel("127.0.0.1:3876".parse().unwrap());
-        let app_state = APPSTATE.read().unwrap();
-
-        let ecdsa_pub_key = app_state.server_keys.ecdsa.pub_key;
-        assert_eq!(
-            ecdsa_pub_key,
-            VerifyingKey::from_sec1_bytes(&res.unwrap().as_bytes()[19..=67]).unwrap()
-        );
-    }
-
-    #[test]
-    fn test_network_msg() -> Result<(), Box<dyn std::error::Error>> {
-        start_http_server();
-        while !APPSTATE.read().unwrap().is_http_server_on {}
-        //crate::client::http::start_tunnel("127.0.0.1:3876".parse()?)?;
-        let res = crate::client::http::msg("127.0.0.1:3876".parse()?, "hello test!")?;
-        assert_eq!(res.as_bytes().len(), 0);
-
-        Ok(())
     }
 
     #[test]

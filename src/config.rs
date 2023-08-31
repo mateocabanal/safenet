@@ -10,7 +10,7 @@ pub struct Config {
 impl Config {
     pub fn routes(mut self, routes: Routes) -> Self {
         self.routes = Some(routes);
-        self
+            self
     }
     pub fn start(self) {
         let middleware = |res: &mut Response| {};

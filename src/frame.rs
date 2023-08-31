@@ -203,68 +203,11 @@ impl InitFrame {
 
         let body = &frame_bytes[23..];
 
-        let mut current_opt_index = 0usize;
-
         // PERF: Must wait until "slice_first_last_chunk" feature is stablized
         // in order to use arrays instead
         let options_bytes = &body[..options_len as usize];
 
         let options = Options::try_from(options_bytes)?;
-        //        #[cfg(test)]
-        //        {
-        //            println!("len of all options: {}", options_len);
-        //            println!("options bytes {:?}", options_bytes);
-        //        }
-        //
-        //        while let Some(option_slice) = options_bytes[current_opt_index..]
-        //            .iter()
-        //            .enumerate()
-        //            .find(|(_, ascii_code)| **ascii_code == 174)
-        //            .map(|(index, _)| &options_bytes[current_opt_index..current_opt_index + index])
-        //        {
-        //            #[cfg(test)]
-        //            println!(
-        //                "length of option, current_opt_index: {:?}, {}",
-        //                option_slice, current_opt_index
-        //            );
-        //
-        //            let equal_sign_pos = option_slice
-        //                .iter()
-        //                .position(|ascii_code| *ascii_code == 61)
-        //                .expect("could not find '=' in option");
-        //            let header_key = &option_slice[..equal_sign_pos];
-        //            let header_value = &option_slice[equal_sign_pos + 1..option_slice.len() - 1];
-        //
-        //            let header_key_str = std::str::from_utf8(header_key)
-        //                .expect("not a valid str")
-        //                .trim()
-        //                .to_string();
-        //
-        //            let header_value_str = std::str::from_utf8(header_value)
-        //                .expect("not a valid value str")
-        //                .trim()
-        //                .to_string();
-        //
-        //            #[cfg(test)]
-        //            {
-        //                println!("header: {header_key_str} = {header_value_str}");
-        //            }
-        //
-        //            options_map.insert(header_key_str, header_value_str);
-        //
-        //            current_opt_index += option_slice.len() + 1;
-        //        }
-        //
-        //        options.frame_type = match options_map
-        //            .get("frame_type")
-        //            .expect("frame_type option not sent!")
-        //            .parse::<u8>()
-        //            .expect("frame_type value not a u8")
-        //        {
-        //            0 => FrameType::Init,
-        //            1 => FrameType::Data,
-        //            2u8..=u8::MAX => return Err("frame_type out of bounds".into()),
-        //        };
 
         let ip_addr_of_peer = options.ip_addr;
         let init_vars_slice = &body[options_len as usize..];
@@ -567,7 +510,6 @@ impl TryFrom<Box<[u8]>> for DataFrame {
         })
     }
 }
-
 //impl TryFrom<&Vec<u8>> for DataFrame {
 //    type Error = String;
 //    fn try_from(input: &Vec<u8>) -> Result<DataFrame, String> {
