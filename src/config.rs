@@ -9,11 +9,12 @@ pub struct Config {
 
 impl Config {
     pub fn routes(mut self, routes: Routes) -> Self {
+        for i in routes {
+        };
         self.routes = Some(routes);
-            self
+        self
     }
     pub fn start(self) {
-        let middleware = |res: &mut Response| {};
 
         let config =
             tinyhttp::prelude::Config::new().routes(self.routes.expect("No routes provided!"));
