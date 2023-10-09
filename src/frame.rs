@@ -26,9 +26,30 @@ pub enum FrameType {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
+pub struct InitOptions {
+    encryption_type: Option<u8>,
+    status: u8,
+}
+
+impl InitOptions {
+    pub fn new_with_enc_type(enc_type: u8) -> InitOptions {
+        InitOptions {
+            encryption_type: Some(enc_type),
+            status: 0,
+        }
+    }
+
+    pub fn status(mut self, status: u8) -> InitOptions {
+        self.status = status;
+        self
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Options {
     frame_type: FrameType,
     ip_addr: Option<SocketAddr>,
+    init_opts: Option<InitOptions>,
 }
 
 impl Default for Options {
@@ -39,6 +60,7 @@ impl Default for Options {
                 .try_read()
                 .expect("could not acquire read handle on appstate")
                 .server_addr,
+            init_opts: None,
         }
     }
 }
@@ -109,17 +131,39 @@ impl TryFrom<&[u8]> for Options {
 
             current_opt_index += option_slice.len() + 1;
         }
+
+        let frame_type = match options_map
+            .get("frame_type")
+            .expect("frame_type option not sent!")
+            .parse::<u8>()
+            .expect("frame_type value not a u8")
+        {
+            0 => FrameType::Init,
+            1 => FrameType::Data,
+            2u8..=u8::MAX => return Err("frame_type out of bounds".into()),
+        };
+        let init_opts = if frame_type == FrameType::Init {
+            Some(
+                InitOptions::new_with_enc_type(
+                    options_map
+                        .get("encryption_type")
+                        .expect("encryption_type flag not found")
+                        .parse::<u8>()
+                        .unwrap(),
+                )
+                .status(
+                    options_map
+                        .get("status")
+                        .expect("status flag not found")
+                        .parse::<u8>()
+                        .unwrap(),
+                ),
+            )
+        } else {
+            None
+        };
         let options = Options {
-            frame_type: match options_map
-                .get("frame_type")
-                .expect("frame_type option not sent!")
-                .parse::<u8>()
-                .expect("frame_type value not a u8")
-            {
-                0 => FrameType::Init,
-                1 => FrameType::Data,
-                2u8..=u8::MAX => return Err("frame_type out of bounds".into()),
-            },
+            frame_type,
             ip_addr: if let Some(ip_addr_str) = options_map.get("ip_addr") {
                 if let Ok(ip_socket_addr) = ip_addr_str.parse::<SocketAddr>() {
                     Some(ip_socket_addr)
@@ -129,6 +173,7 @@ impl TryFrom<&[u8]> for Options {
             } else {
                 None
             },
+            init_opts,
         };
 
         Ok(options)
@@ -292,6 +337,8 @@ impl Default for DataFrame {
         }
     }
 }
+
+
 
 impl Frame for DataFrame {
     fn to_bytes(&self) -> Vec<u8> {

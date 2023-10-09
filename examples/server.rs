@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let local_ip = local_ip()?.to_string();
     let port = args.port;
     let sock =
-        TcpListener::bind(format!("{local_ip}:{port}")).expect("could not bind on port 1800");
+        TcpListener::bind(format!("0.0.0.0:{port}")).expect("could not bind on port 1800");
     start_server(sock);
 
     loop {
