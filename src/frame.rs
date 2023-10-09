@@ -43,6 +43,19 @@ impl InitOptions {
         self.status = status;
         self
     }
+
+    pub fn encryption_type(mut self, enc_type: u8) -> InitOptions {
+        self.encryption_type = Some(enc_type);
+        self
+    }
+}
+
+impl Into<Vec<u8>> for InitOptions {
+    fn into(self) -> Vec<u8> {
+        let enc_type = self.encryption_type.unwrap();
+        let status = self.status;
+        format!("init_opts: [{enc_type}\u{00ba}{status}\u{00ba}]").into_bytes()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -74,11 +87,20 @@ impl Into<Vec<u8>> for Options {
             "".to_string()
         };
 
-        [
-            header_as_string.into_bytes(),
-            ip_addr_as_string.into_bytes(),
-        ]
-        .concat()
+        if self.frame_type == FrameType::Init {
+            [
+                header_as_string.into_bytes(),
+                ip_addr_as_string.into_bytes(),
+                self.init_opts.unwrap().into(),
+            ]
+            .concat()
+        } else {
+            [
+                header_as_string.into_bytes(),
+                ip_addr_as_string.into_bytes(),
+            ]
+            .concat()
+        }
     }
 }
 
@@ -337,8 +359,6 @@ impl Default for DataFrame {
         }
     }
 }
-
-
 
 impl Frame for DataFrame {
     fn to_bytes(&self) -> Vec<u8> {
