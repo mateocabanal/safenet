@@ -25,14 +25,20 @@ pub enum FrameType {
     Init = 0,
 }
 
+#[derive(Debug, Clone, Default, Copy, PartialEq, Eq)]
+pub enum EncryptionType {
+    #[default]
+    Legacy = 0,
+    Kyber = 1,
+}
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InitOptions {
-    encryption_type: Option<u8>,
+    encryption_type: Option<EncryptionType>,
     status: u8,
 }
 
 impl InitOptions {
-    pub fn new_with_enc_type(enc_type: u8) -> InitOptions {
+    pub fn new_with_enc_type(enc_type: EncryptionType) -> InitOptions {
         InitOptions {
             encryption_type: Some(enc_type),
             status: 0,
@@ -44,7 +50,7 @@ impl InitOptions {
         self
     }
 
-    pub fn encryption_type(mut self, enc_type: u8) -> InitOptions {
+    pub fn encryption_type(mut self, enc_type: EncryptionType) -> InitOptions {
         self.encryption_type = Some(enc_type);
         self
     }
@@ -52,9 +58,9 @@ impl InitOptions {
 
 impl Into<Vec<u8>> for InitOptions {
     fn into(self) -> Vec<u8> {
-        let enc_type = self.encryption_type.unwrap();
+        let enc_type = self.encryption_type.unwrap() as u8;
         let status = self.status;
-        format!("init_opts: [{enc_type}\u{00ba}{status}\u{00ba}]").into_bytes()
+        format!("encryption_type = {enc_type}\u{00ae}status = {status}\u{00ae}").into_bytes()
     }
 }
 
@@ -164,23 +170,19 @@ impl TryFrom<&[u8]> for Options {
             1 => FrameType::Data,
             2u8..=u8::MAX => return Err("frame_type out of bounds".into()),
         };
+
         let init_opts = if frame_type == FrameType::Init {
-            Some(
-                InitOptions::new_with_enc_type(
-                    options_map
-                        .get("encryption_type")
-                        .expect("encryption_type flag not found")
-                        .parse::<u8>()
-                        .unwrap(),
-                )
-                .status(
-                    options_map
-                        .get("status")
-                        .expect("status flag not found")
-                        .parse::<u8>()
-                        .unwrap(),
-                ),
-            )
+            let enc_type = match options_map
+                .get("encryption_type")
+                .expect("encryption_type flag not found")
+                .parse::<u8>()
+                .unwrap()
+            {
+                0 => EncryptionType::Legacy,
+                1 => EncryptionType::Kyber,
+                2u8..=u8::MAX => return Err("enc_type out of bounds".into()),
+            };
+            Some(InitOptions::new_with_enc_type(enc_type).status(0))
         } else {
             None
         };
@@ -243,6 +245,7 @@ impl Default for InitFrame {
 
         let mut options = Options::default();
         options.frame_type = FrameType::Init;
+        options.init_opts = Some(InitOptions::new_with_enc_type(EncryptionType::Legacy).status(0));
         let ecdsa_pub_key = appstate_r.server_keys.ecdsa.pub_key;
         let ecdh_keys = ECDHKeys::init();
         let ecdh_signature: Signature = appstate_r
