@@ -4,7 +4,7 @@
 //     Nonce, // Or `Aes128GcmSiv`
 // };
 use blake2::{digest::consts::U32, Blake2b, Digest};
-use chacha20poly1305::{ChaCha20Poly1305, ChaChaPoly1305, KeyInit};
+use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
 use p384::{elliptic_curve::ecdh::SharedSecret, NistP384};
 
 type Blake2b256 = Blake2b<U32>;

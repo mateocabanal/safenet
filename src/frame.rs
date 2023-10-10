@@ -1,8 +1,8 @@
-use local_ip_address::local_ip;
+
 use p384::ecdsa::signature::Signer;
 use std::{
     collections::HashMap,
-    net::{IpAddr, SocketAddr},
+    net::{SocketAddr},
 };
 use uuid::Uuid;
 

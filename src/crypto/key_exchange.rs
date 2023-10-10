@@ -1,7 +1,7 @@
 use p384::{
     ecdh::EphemeralSecret,
-    ecdsa::{signature::Signer, Signature, SigningKey, VerifyingKey},
-    EncodedPoint, NistP384, PublicKey,
+    ecdsa::{SigningKey, VerifyingKey},
+    EncodedPoint, PublicKey,
 };
 
 use rand::rngs::OsRng;

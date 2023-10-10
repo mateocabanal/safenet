@@ -1,22 +1,17 @@
 use std::net::TcpListener;
 use std::net::{IpAddr, SocketAddr};
 
-use blake2::{digest::Update, digest::VariableOutput, Blake2bVar};
-use chacha20poly1305::aead::Aead;
+use blake2::{digest::VariableOutput};
+
 use local_ip_address::local_ip;
 use p384::{
-    ecdsa::{
-        signature::{Signer, Verifier},
-        Signature, VerifyingKey,
-    },
     elliptic_curve::sec1::ToEncodedPoint,
-    PublicKey,
 };
 use tinyhttp::prelude::*;
 use uuid::Uuid;
 
 use crate::frame::{DataFrame, Frame, InitFrame};
-use crate::{app_state::ClientKeypair, crypto::key_exchange::ECDHKeys, APPSTATE};
+use crate::{APPSTATE};
 
 #[get("/keys/pub")]
 fn get_pub_key(_req: Request) -> Response {

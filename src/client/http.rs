@@ -1,23 +1,20 @@
 use std::net::SocketAddr;
 
 use blake2::{
-    digest::{Update, VariableOutput},
-    Blake2bVar,
+    digest::{VariableOutput},
 };
-use chacha20poly1305::aead::Aead;
+
 use minreq::Response;
 use p384::{
     ecdsa::{
-        signature::{Signer, Verifier},
+        signature::{Signer},
         Signature, VerifyingKey,
     },
     elliptic_curve::sec1::ToEncodedPoint,
-    PublicKey,
 };
-use uuid::{uuid, Uuid};
+
 
 use crate::{
-    app_state::{AppState, ClientKeypair},
     crypto::key_exchange::ECDHKeys,
     frame::{DataFrame, Frame, InitFrame},
     APPSTATE,
