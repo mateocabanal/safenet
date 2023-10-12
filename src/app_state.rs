@@ -1,9 +1,8 @@
 use crate::crypto::{
     aes::ChaChaCipher,
-    key_exchange::{ECDHKeys, ECDSAKeys},
+    key_exchange::{ECDHKeys, ECDSAKeys, ECDSAPubKey, SharedSecret},
 };
 use once_cell::sync::Lazy;
-use p384::{ecdh::SharedSecret, ecdsa::VerifyingKey};
 use std::{net::SocketAddr, sync::RwLock};
 use uuid::Uuid;
 
@@ -36,7 +35,7 @@ impl AppState {
 
 pub struct ClientKeypair {
     pub id: Option<String>,
-    pub ecdsa: Option<VerifyingKey>,
+    pub ecdsa: Option<ECDSAPubKey>,
     pub ecdh: Option<SharedSecret>,
     pub chacha: Option<ChaChaCipher>,
     pub uuid: Uuid,
@@ -49,7 +48,7 @@ impl std::fmt::Debug for ClientKeypair {
             f,
             "(id: {}\n, ecdsa: {:?}\n, ecdh: {:?}\n, uuid: {}\n)",
             self.id.as_ref().unwrap(),
-            self.ecdsa.unwrap().to_encoded_point(true).to_bytes(),
+            self.ecdsa.as_ref().unwrap().to_bytes(),
             self.ecdh.as_ref().unwrap().raw_secret_bytes(),
             self.uuid
         )
@@ -73,7 +72,7 @@ impl ClientKeypair {
         self
     }
 
-    pub fn ecdsa(mut self, pub_key: VerifyingKey) -> Self {
+    pub fn ecdsa(mut self, pub_key: ECDSAPubKey) -> Self {
         self.ecdsa = Some(pub_key);
         self
     }

@@ -10,23 +10,28 @@ pub use uuid;
 
 #[cfg(test)]
 mod tests {
-    use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
+    use crate::crypto::key_exchange::{ECDHKeys, ECDHPubKey, ECDSAKeys, ECDSAPubKey, Signature};
     use chacha20poly1305::{AeadCore, ChaCha20Poly1305};
-    use p384::{ecdsa::Signature, ecdsa::VerifyingKey, PublicKey};
     use simple_logger::SimpleLogger;
 
     use crate::{
-        uuid::Uuid,
         app_state::ClientKeypair,
         crypto::aes::ChaChaCipher,
         frame::{DataFrame, Frame, InitFrame, Options},
+        uuid::Uuid,
     };
 
     use tinyhttp::prelude::*;
 
     #[get("/keys/pub")]
     fn keys_pub() -> Vec<u8> {
-        APPSTATE.try_read().unwrap().server_keys.ecdsa.pub_key.to_encoded_point(true).to_bytes()
+        APPSTATE
+            .try_read()
+            .unwrap()
+            .server_keys
+            .ecdsa
+            .get_pub_key()
+            .to_bytes()
     }
 
     #[post("/conn/init")]
@@ -89,12 +94,13 @@ mod tests {
             "teo".as_bytes().try_into().unwrap();
         let socket = std::net::TcpListener::bind("127.0.0.1:3876");
         if let Ok(s) = socket {
-            let conf = Config::new().routes(Routes::new(vec![conn_init(), server_msg(), keys_pub()]));
+            let conf =
+                Config::new().routes(Routes::new(vec![conn_init(), server_msg(), keys_pub()]));
             std::thread::spawn(|| HttpListener::new(s, conf).start());
             APPSTATE.try_write().unwrap().is_http_server_on = true;
         } else {
             log::warn!("could not bind to port 3876, http server could be on already");
-        }   
+        }
     }
 
     // NOTE: Cannot hold a .write() lock on APPSTATE
@@ -104,13 +110,12 @@ mod tests {
         let ecdh_keypair = ECDHKeys::init();
 
         ClientKeypair::new()
-            .ecdsa(ecdsa_keypair.pub_key)
+            .ecdsa(ecdsa_keypair.get_pub_key().clone())
             .ecdh(
                 app_state
                     .server_keys
                     .ecdh
-                    .priv_key
-                    .diffie_hellman(&ecdh_keypair.pub_key),
+                    .gen_shared_secret(ecdh_keypair.get_pub_key()),
             )
             .uuid(uuid::Uuid::new_v4())
             .id(id)
@@ -118,20 +123,18 @@ mod tests {
 
     #[test]
     fn test_ecdsa() {
-        use p384::ecdsa::signature::{Signer, Verifier};
-
         let keys = ECDSAKeys::init();
         let msg = b"Hi ECDSA!";
-        let sig: Signature = keys.priv_key.sign(msg);
-        assert!(keys.pub_key.verify(msg, &sig).is_ok())
+        let sig: Signature = keys.sign(msg);
+        assert!(keys.get_pub_key().verify(msg, &sig).is_ok())
     }
 
     #[test]
     fn test_ecdh() {
         let alice_keys = ECDHKeys::init();
         let bob_keys = ECDHKeys::init();
-        let alice_shared = alice_keys.priv_key.diffie_hellman(&bob_keys.pub_key);
-        let bob_shared = bob_keys.priv_key.diffie_hellman(&alice_keys.pub_key);
+        let alice_shared = alice_keys.gen_shared_secret(bob_keys.get_pub_key());
+        let bob_shared = bob_keys.gen_shared_secret(&alice_keys.get_pub_key());
         // assert_ne!(alice_keys.priv_key, bob_keys.priv_key);
 
         assert_eq!(
@@ -152,51 +155,43 @@ mod tests {
         let alice_ecdh = ECDHKeys::init();
         let bob_ecdh = ECDHKeys::init();
 
-        let alice_ecdh_pub_key_sec1_bytes = alice_ecdh.pub_key.to_encoded_point(true).to_bytes();
-        let bob_ecdh_pub_key_sec1_bytes = bob_ecdh.pub_key.to_encoded_point(true).to_bytes();
+        let alice_ecdh_pub_key_sec1_bytes = alice_ecdh.get_pub_key_to_bytes();
+        let bob_ecdh_pub_key_sec1_bytes = bob_ecdh.get_pub_key_to_bytes();
 
-        let alice_signed_ecdh_pub_key: Signature =
-            alice_ecdsa.priv_key.sign(&alice_ecdh_pub_key_sec1_bytes);
+        let alice_signed_ecdh_pub_key: Signature = alice_ecdsa.sign(&alice_ecdh_pub_key_sec1_bytes);
 
-        let bob_signed_ecdh_pub_key: Signature =
-            bob_ecdsa.priv_key.sign(&bob_ecdh_pub_key_sec1_bytes);
+        let bob_signed_ecdh_pub_key: Signature = bob_ecdsa.sign(&bob_ecdh_pub_key_sec1_bytes);
 
         assert!(alice_ecdsa
-            .pub_key
+            .get_pub_key()
             .verify(&alice_ecdh_pub_key_sec1_bytes, &alice_signed_ecdh_pub_key)
             .is_ok());
 
         assert!(bob_ecdsa
-            .pub_key
+            .get_pub_key()
             .verify(&bob_ecdh_pub_key_sec1_bytes, &bob_signed_ecdh_pub_key)
             .is_ok());
 
         assert!(alice_ecdsa
-            .pub_key
+            .get_pub_key()
             .verify(&alice_ecdh_pub_key_sec1_bytes, &bob_signed_ecdh_pub_key)
             .is_err());
 
         println!(
-            "length of ecdsa pub key (encoded point): {}\n
-            length of ecdsa pub key (sec1): {}",
+            "length of ecdsa pub key (encoded point): {}",
             alice_ecdh_pub_key_sec1_bytes.len(),
-            alice_ecdh.pub_key.to_sec1_bytes().len()
         );
 
         // Simulates signed keys being sent over the network,
         // then converted to public keys.
         let returned_alice_ecdh_pub_key =
-            PublicKey::from_sec1_bytes(&alice_ecdh_pub_key_sec1_bytes)
+            ECDHPubKey::from_sec1_bytes(&alice_ecdh_pub_key_sec1_bytes)
                 .expect("failed to instantiate pub key from bytes!");
-        let returned_bob_ecdh_pub_key = PublicKey::from_sec1_bytes(&bob_ecdh_pub_key_sec1_bytes)
+        let returned_bob_ecdh_pub_key = ECDHPubKey::from_sec1_bytes(&bob_ecdh_pub_key_sec1_bytes)
             .expect("failed to instantiate pub key from bytes!");
 
-        let alice_secret = alice_ecdh
-            .priv_key
-            .diffie_hellman(&returned_bob_ecdh_pub_key);
-        let bob_secret = bob_ecdh
-            .priv_key
-            .diffie_hellman(&returned_alice_ecdh_pub_key);
+        let alice_secret = alice_ecdh.gen_shared_secret(&returned_bob_ecdh_pub_key);
+        let bob_secret = bob_ecdh.gen_shared_secret(&returned_alice_ecdh_pub_key);
 
         println!("length of dh: {}", alice_secret.raw_secret_bytes().len());
 
@@ -229,22 +224,21 @@ mod tests {
     #[test]
     fn test_appstate() {
         let app_state_keys = &APPSTATE.read().unwrap().server_keys;
-        println!(
-            "App state: pub: {:#?}, priv: {:#?}",
-            app_state_keys.ecdsa.pub_key, app_state_keys.ecdsa.priv_key
-        );
+        println!("App state: pub: {:#?}", app_state_keys.ecdsa.get_pub_key(),);
     }
 
     #[test]
     fn test_network_server_pub_key() {
         start_http_server();
         while !APPSTATE.read().unwrap().is_http_server_on {}
-        let serv_pub_key_as_bytes = minreq::get("http://127.0.0.1:3876/keys/pub").send().unwrap();
-        let serv_pub_key = VerifyingKey::from_sec1_bytes(serv_pub_key_as_bytes.as_bytes()).unwrap();
+        let serv_pub_key_as_bytes = minreq::get("http://127.0.0.1:3876/keys/pub")
+            .send()
+            .unwrap();
+        let serv_pub_key = ECDSAPubKey::from_sec1_bytes(serv_pub_key_as_bytes.as_bytes()).unwrap();
 
         assert_eq!(
-            APPSTATE.read().unwrap().server_keys.ecdsa.pub_key,
-            serv_pub_key
+            APPSTATE.read().unwrap().server_keys.ecdsa.get_pub_key(),
+            &serv_pub_key
         );
     }
 
@@ -254,10 +248,17 @@ mod tests {
         while !APPSTATE.read()?.is_http_server_on {}
         let uuid = APPSTATE.read()?.uuid;
         let client_init_frame = InitFrame::default();
-        let server_init_res = minreq::post("http://127.0.0.1:3876/conn/init").with_body(client_init_frame.to_bytes()).send()?; 
-        client_init_frame.from_peer(server_init_res.as_bytes()).unwrap();
+        let server_init_res = minreq::post("http://127.0.0.1:3876/conn/init")
+            .with_body(client_init_frame.to_bytes())
+            .send()?;
+        client_init_frame
+            .from_peer(server_init_res.as_bytes())
+            .unwrap();
 
-        assert_eq!(uuid, uuid::Uuid::from_slice(&server_init_res.as_bytes()[3..=18])?);
+        assert_eq!(
+            uuid,
+            uuid::Uuid::from_slice(&server_init_res.as_bytes()[3..=18])?
+        );
 
         Ok(())
     }

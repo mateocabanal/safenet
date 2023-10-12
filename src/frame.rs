@@ -1,16 +1,19 @@
-use p384::ecdsa::signature::Signer;
 use std::{collections::HashMap, net::SocketAddr};
 use uuid::Uuid;
 
 use blake2::{digest::consts::U12, Blake2b, Digest};
 use chacha20poly1305::aead::Aead;
 use p384::{
-    ecdsa::{signature::Verifier, Signature, VerifyingKey},
+    ecdsa::{signature::Verifier, VerifyingKey},
     elliptic_curve::sec1::ToEncodedPoint,
     PublicKey,
 };
 
-use crate::{app_state::ClientKeypair, crypto::key_exchange::ECDHKeys, APPSTATE};
+use crate::{
+    app_state::ClientKeypair,
+    crypto::key_exchange::{ECDHKeys, ECDHPubKey, ECDSAPubKey, Signature},
+    APPSTATE,
+};
 
 type Blake2b96 = Blake2b<U12>;
 
@@ -209,7 +212,7 @@ pub struct InitFrame {
     pub id: [u8; 3],
     pub uuid: [u8; 16],
     pub options: Options,
-    pub ecdsa_pub_key: VerifyingKey,
+    pub ecdsa_pub_key: ECDSAPubKey,
     pub ecdh_keys: ECDHKeys,
     pub ecdh_signature: Signature,
 }
@@ -223,9 +226,9 @@ impl Frame for InitFrame {
             self.uuid.as_slice(),
             &options_size.to_be_bytes(),
             &options_bytes,
-            &self.ecdsa_pub_key.to_encoded_point(true).to_bytes(),
-            &self.ecdh_keys.pub_key.to_encoded_point(true).to_bytes(),
-            &self.ecdh_signature.to_der().to_bytes(),
+            &self.ecdsa_pub_key.to_bytes(),
+            &self.ecdh_keys.get_pub_key_to_bytes(),
+            &self.ecdh_signature.to_bytes(),
         ]
         .concat()
     }
@@ -243,13 +246,12 @@ impl Default for InitFrame {
         let mut options = Options::default();
         options.frame_type = FrameType::Init;
         options.init_opts = Some(InitOptions::new_with_enc_type(EncryptionType::Legacy).status(0));
-        let ecdsa_pub_key = appstate_r.server_keys.ecdsa.pub_key;
+        let ecdsa_pub_key = appstate_r.server_keys.ecdsa.get_pub_key().clone();
         let ecdh_keys = ECDHKeys::init();
-        let ecdh_signature: Signature = appstate_r
+        let ecdh_signature = appstate_r
             .server_keys
             .ecdsa
-            .priv_key
-            .sign(ecdh_keys.pub_key.to_encoded_point(true).as_bytes());
+            .sign(&ecdh_keys.get_pub_key_to_bytes());
 
         InitFrame {
             id,
@@ -279,7 +281,7 @@ impl InitFrame {
         let ip_addr_of_peer = options.ip_addr;
         let init_vars_slice = &body[options_len as usize..];
 
-        let client_ecdsa_key = VerifyingKey::from_sec1_bytes(&init_vars_slice[0..=48]).unwrap();
+        let client_ecdsa_key = ECDSAPubKey::from_sec1_bytes(&init_vars_slice[0..=48]).unwrap();
         let client_ecdh_key_bytes = &init_vars_slice[49..=97];
         let client_signature = Signature::from_der(&init_vars_slice[98..]).unwrap();
         //log::trace!("server res: key: {:#?}", client_signature);
@@ -290,8 +292,8 @@ impl InitFrame {
             log::trace!("SIG FAILED :(");
         }
 
-        let client_ecdh_key = PublicKey::from_sec1_bytes(client_ecdh_key_bytes).unwrap();
-        let peer_shared_secret = self.ecdh_keys.priv_key.diffie_hellman(&client_ecdh_key);
+        let client_ecdh_key = ECDHPubKey::from_sec1_bytes(client_ecdh_key_bytes).unwrap();
+        let peer_shared_secret = self.ecdh_keys.gen_shared_secret(&client_ecdh_key);
 
         log::trace!(
             "client: secret: {:#?}",
@@ -539,7 +541,7 @@ impl DataFrame {
         let mut hasher = Blake2b96::new();
         hasher.update(shared_secret_bytes);
         let res = hasher.finalize();
-        log::trace!("len of hash (blake2b96): {:?}", &res);
+        log::trace!("len of hash (blake2b96): {:?}", &res.len());
         let decrypted_body = keypair
             .chacha
             .as_ref()

@@ -5,7 +5,8 @@
 // };
 use blake2::{digest::consts::U32, Blake2b, Digest};
 use chacha20poly1305::{ChaCha20Poly1305, KeyInit};
-use p384::{elliptic_curve::ecdh::SharedSecret, NistP384};
+
+use super::key_exchange::SharedSecret;
 
 type Blake2b256 = Blake2b<U32>;
 
@@ -15,8 +16,7 @@ pub struct ChaChaCipher {
 }
 
 impl ChaChaCipher {
-    pub fn init_with_key(dh_secret: &SharedSecret<NistP384>) -> ChaChaCipher {
-
+    pub fn init_with_key(dh_secret: &SharedSecret) -> ChaChaCipher {
         let mut hasher = Blake2b256::new();
 
         let dh_bytes = dh_secret.raw_secret_bytes();
