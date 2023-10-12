@@ -1,9 +1,5 @@
-
 use p384::ecdsa::signature::Signer;
-use std::{
-    collections::HashMap,
-    net::{SocketAddr},
-};
+use std::{collections::HashMap, net::SocketAddr};
 use uuid::Uuid;
 
 use blake2::{digest::consts::U12, Blake2b, Digest};
@@ -121,12 +117,14 @@ impl TryFrom<&[u8]> for Options {
             println!("options bytes {:?}", options_bytes);
         }
 
+        log::trace!("\x1b[38;2;238;171;196mBEGIN OPTION PARSING LOOP!\x1b[1;0m\n");
         while let Some(option_slice) = options_bytes[current_opt_index..]
             .iter()
             .enumerate()
             .find(|(_, ascii_code)| **ascii_code == 174)
             .map(|(index, _)| &options_bytes[current_opt_index..current_opt_index + index])
         {
+            log::trace!("\x1b[38;2;108;190;237m");
             #[cfg(test)]
             println!(
                 "length of option, current_opt_index: {:?}, {}",
@@ -150,15 +148,14 @@ impl TryFrom<&[u8]> for Options {
                 .trim()
                 .to_string();
 
-            #[cfg(test)]
-            {
-                println!("header: {header_key_str} = {header_value_str}");
-            }
+            log::trace!("header: {header_key_str} = {header_value_str}");
 
             options_map.insert(header_key_str, header_value_str);
 
             current_opt_index += option_slice.len() + 1;
         }
+        log::trace!("\x1b[1;0m");
+        log::trace!("\x1b[38;2;238;171;196mEND OF OPTION PARSING LOOP!\x1b[1;0m\n");
 
         let frame_type = match options_map
             .get("frame_type")
@@ -542,6 +539,7 @@ impl DataFrame {
         let mut hasher = Blake2b96::new();
         hasher.update(shared_secret_bytes);
         let res = hasher.finalize();
+        log::trace!("len of hash (blake2b96): {:?}", &res);
         let decrypted_body = keypair
             .chacha
             .as_ref()

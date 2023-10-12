@@ -1,30 +1,87 @@
 pub mod app_state;
 pub mod client;
-pub mod config;
 pub mod crypto;
 pub mod frame;
 pub mod server;
 
 pub use crate::app_state::APPSTATE;
 
+pub use uuid;
+
 #[cfg(test)]
 mod tests {
-use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
+    use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
     use chacha20poly1305::{AeadCore, ChaCha20Poly1305};
     use p384::{ecdsa::Signature, ecdsa::VerifyingKey, PublicKey};
     use simple_logger::SimpleLogger;
 
     use crate::{
+        uuid::Uuid,
         app_state::ClientKeypair,
         crypto::aes::ChaChaCipher,
         frame::{DataFrame, Frame, InitFrame, Options},
     };
 
+    use tinyhttp::prelude::*;
+
+    #[get("/keys/pub")]
+    fn keys_pub() -> Vec<u8> {
+        APPSTATE.try_read().unwrap().server_keys.ecdsa.pub_key.to_encoded_point(true).to_bytes()
+    }
+
+    #[post("/conn/init")]
+    fn conn_init(req: Request) -> Response {
+        let req_bytes = req.get_raw_body();
+        let init_frame = InitFrame::default();
+        init_frame.from_peer(req_bytes).unwrap();
+        Response::new()
+            .mime("text/plain")
+            .body(init_frame.to_bytes())
+            .mime("HTTP/1.1 200 OK")
+    }
+
+    #[post("/echo")]
+    fn server_msg(req: Request) -> Response {
+        let req_bytes = req.get_raw_body().clone();
+        let data_frame: Result<DataFrame, String> = req_bytes.into_boxed_slice().try_into();
+        if data_frame.is_err() {
+            log::trace!("failed to parse data frame");
+            return Response::new()
+                .body(vec![])
+                .mime("fuck/off")
+                .status_line("HTTP/1.1 42069 fuck_u");
+        }
+        let mut data_frame = data_frame.expect("failed to parse data");
+
+        let dec_body = data_frame.decode_frame();
+
+        if let Err(e) = dec_body {
+            log::error!("failed to decrypt frame: {e}");
+            Response::new()
+                .body(vec![])
+                .mime("fuck/u")
+                .status_line("HTTP/1.1 42069 fuck_me")
+        } else {
+            let msg = std::str::from_utf8(&data_frame.body).unwrap();
+            let mut response_frame = DataFrame::new(&*format!("got: {msg}").into_bytes());
+            response_frame
+                .encode_frame(Uuid::from_bytes(data_frame.uuid.unwrap()))
+                .unwrap();
+            Response::new()
+                .body(response_frame.to_bytes())
+                .mime("love/u")
+                .status_line("HTTP/1.1 200 OK")
+        }
+    }
+
     use super::*;
 
     #[allow(unused_must_use)]
     fn setup_logger() {
-        SimpleLogger::new().with_level(log::LevelFilter::Trace).env().init();
+        SimpleLogger::new()
+            .with_level(log::LevelFilter::Trace)
+            .env()
+            .init();
     }
 
     fn start_http_server() {
@@ -32,8 +89,12 @@ use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
             "teo".as_bytes().try_into().unwrap();
         let socket = std::net::TcpListener::bind("127.0.0.1:3876");
         if let Ok(s) = socket {
-            crate::server::http::start_server(s);
-        }
+            let conf = Config::new().routes(Routes::new(vec![conn_init(), server_msg(), keys_pub()]));
+            std::thread::spawn(|| HttpListener::new(s, conf).start());
+            APPSTATE.try_write().unwrap().is_http_server_on = true;
+        } else {
+            log::warn!("could not bind to port 3876, http server could be on already");
+        }   
     }
 
     // NOTE: Cannot hold a .write() lock on APPSTATE
@@ -115,6 +176,13 @@ use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
             .verify(&alice_ecdh_pub_key_sec1_bytes, &bob_signed_ecdh_pub_key)
             .is_err());
 
+        println!(
+            "length of ecdsa pub key (encoded point): {}\n
+            length of ecdsa pub key (sec1): {}",
+            alice_ecdh_pub_key_sec1_bytes.len(),
+            alice_ecdh.pub_key.to_sec1_bytes().len()
+        );
+
         // Simulates signed keys being sent over the network,
         // then converted to public keys.
         let returned_alice_ecdh_pub_key =
@@ -171,7 +239,8 @@ use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
     fn test_network_server_pub_key() {
         start_http_server();
         while !APPSTATE.read().unwrap().is_http_server_on {}
-        let serv_pub_key = crate::client::http::get_serv_pub("127.0.0.1:3876".parse().unwrap());
+        let serv_pub_key_as_bytes = minreq::get("http://127.0.0.1:3876/keys/pub").send().unwrap();
+        let serv_pub_key = VerifyingKey::from_sec1_bytes(serv_pub_key_as_bytes.as_bytes()).unwrap();
 
         assert_eq!(
             APPSTATE.read().unwrap().server_keys.ecdsa.pub_key,
@@ -184,8 +253,11 @@ use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
         start_http_server();
         while !APPSTATE.read()?.is_http_server_on {}
         let uuid = APPSTATE.read()?.uuid;
-        let init_res = crate::client::http::start_tunnel("127.0.0.1:3876".parse()?)?;
-        assert_eq!(uuid, uuid::Uuid::from_slice(&init_res.as_bytes()[3..=18])?);
+        let client_init_frame = InitFrame::default();
+        let server_init_res = minreq::post("http://127.0.0.1:3876/conn/init").with_body(client_init_frame.to_bytes()).send()?; 
+        client_init_frame.from_peer(server_init_res.as_bytes()).unwrap();
+
+        assert_eq!(uuid, uuid::Uuid::from_slice(&server_init_res.as_bytes()[3..=18])?);
 
         Ok(())
     }
@@ -213,8 +285,6 @@ use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
 
         log::info!("first_pair uuid: {}", first_pair.uuid);
 
-
-        
         let second_pair = app_state
             .client_keys
             .iter()
@@ -224,7 +294,6 @@ use crate::crypto::key_exchange::{ECDHKeys, ECDSAKeys};
         log::info!("second_pair uuid: {}", second_pair.uuid);
 
         let mut encrypted_frame = DataFrame::new(b"Hello Server".as_slice());
-
 
         println!("encoding frame ...");
         encrypted_frame.encode_frame(first_pair.uuid)?;
