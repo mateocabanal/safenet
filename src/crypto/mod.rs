@@ -5,3 +5,8 @@ pub mod kyber;
 mod rust_crypto;
 #[cfg(not(feature = "ring"))]
 pub use rust_crypto::key_exchange;
+
+#[cfg(feature = "ring")]
+mod ring;
+#[cfg(feature = "ring")]
+pub use ring::key_exchange;

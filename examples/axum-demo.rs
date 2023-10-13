@@ -6,11 +6,10 @@ use safenet::{frame::{InitFrame, Frame, DataFrame}, APPSTATE};
 
 async fn init_conn(body_bytes: Bytes) -> Response<Full<Bytes>> {
     let init_frame = InitFrame::default();
-    init_frame.from_peer(&body_bytes).unwrap();
     Response::builder()
         .status(StatusCode::OK)
         .header("content-type", "text/plain")
-        .body(init_frame.to_bytes().into())
+        .body(init_frame.from_peer(&body_bytes).unwrap().into())
         .unwrap()
 }
 

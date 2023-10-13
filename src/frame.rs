@@ -3,11 +3,6 @@ use uuid::Uuid;
 
 use blake2::{digest::consts::U12, Blake2b, Digest};
 use chacha20poly1305::aead::Aead;
-use p384::{
-    ecdsa::{signature::Verifier, VerifyingKey},
-    elliptic_curve::sec1::ToEncodedPoint,
-    PublicKey,
-};
 
 use crate::{
     app_state::ClientKeypair,
@@ -213,6 +208,7 @@ pub struct InitFrame {
     pub uuid: [u8; 16],
     pub options: Options,
     pub ecdsa_pub_key: ECDSAPubKey,
+    pub ecdh_pub_key: ECDHPubKey,
     pub ecdh_keys: ECDHKeys,
     pub ecdh_signature: Signature,
 }
@@ -227,7 +223,7 @@ impl Frame for InitFrame {
             &options_size.to_be_bytes(),
             &options_bytes,
             &self.ecdsa_pub_key.to_bytes(),
-            &self.ecdh_keys.get_pub_key_to_bytes(),
+            &self.ecdh_pub_key.get_pub_key_to_bytes(),
             &self.ecdh_signature.to_bytes(),
         ]
         .concat()
@@ -248,6 +244,7 @@ impl Default for InitFrame {
         options.init_opts = Some(InitOptions::new_with_enc_type(EncryptionType::Legacy).status(0));
         let ecdsa_pub_key = appstate_r.server_keys.ecdsa.get_pub_key().clone();
         let ecdh_keys = ECDHKeys::init();
+        let ecdh_pub_key = ecdh_keys.get_pub_key();
         let ecdh_signature = appstate_r
             .server_keys
             .ecdsa
@@ -258,6 +255,7 @@ impl Default for InitFrame {
             uuid,
             options,
             ecdsa_pub_key,
+            ecdh_pub_key,
             ecdh_keys,
             ecdh_signature,
         }
@@ -265,7 +263,7 @@ impl Default for InitFrame {
 }
 
 impl InitFrame {
-    pub fn from_peer(&self, frame_bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn from_peer(self, frame_bytes: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let id = &frame_bytes[0..=2];
         let uuid = Uuid::from_slice(&frame_bytes[3..=18]).unwrap();
         let options_len = u32::from_be_bytes(frame_bytes[19..=22].try_into()?);
@@ -281,9 +279,9 @@ impl InitFrame {
         let ip_addr_of_peer = options.ip_addr;
         let init_vars_slice = &body[options_len as usize..];
 
-        let client_ecdsa_key = ECDSAPubKey::from_sec1_bytes(&init_vars_slice[0..=48]).unwrap();
-        let client_ecdh_key_bytes = &init_vars_slice[49..=97];
-        let client_signature = Signature::from_der(&init_vars_slice[98..]).unwrap();
+        let client_ecdsa_key = ECDSAPubKey::from_sec1_bytes(&init_vars_slice[..97]).unwrap();
+        let client_ecdh_key_bytes = &init_vars_slice[97..194];
+        let client_signature = Signature::from_der(&init_vars_slice[194..]).unwrap();
         //log::trace!("server res: key: {:#?}", client_signature);
         if client_ecdsa_key
             .verify(client_ecdh_key_bytes, &client_signature)
@@ -336,7 +334,18 @@ impl InitFrame {
             client_keys.push(client_keypair);
         }
 
-        Ok(())
+        let options_bytes: Vec<u8> = self.options.into();
+        let options_size: u32 = options_bytes.len() as u32;
+        Ok([
+            self.id.as_slice(),
+            self.uuid.as_slice(),
+            &options_size.to_be_bytes(),
+            &options_bytes,
+            &self.ecdsa_pub_key.to_bytes(),
+            &self.ecdh_pub_key.get_pub_key_to_bytes(),
+            &self.ecdh_signature.to_bytes(),
+        ]
+        .concat())
     }
 }
 

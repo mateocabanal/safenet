@@ -15,10 +15,9 @@ use tinyhttp::prelude::*;
 fn conn_init(req: Request) -> Response {
     let req_bytes = req.get_raw_body();
     let init_frame = InitFrame::default();
-    init_frame.from_peer(req_bytes).unwrap();
     Response::new()
         .mime("text/plain")
-        .body(init_frame.to_bytes())
+        .body(init_frame.from_peer(req_bytes).unwrap())
         .mime("HTTP/1.1 200 OK")
 }
 

@@ -44,7 +44,7 @@ impl ECDSAPubKey {
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
-        self.pub_key.to_encoded_point(true).to_bytes().to_vec()
+        self.pub_key.to_encoded_point(false).to_bytes().to_vec()
     }
 
     pub fn verify(&self, msg: &[u8], sig: &Signature) -> Result<(), Box<dyn std::error::Error>> {
@@ -73,6 +73,7 @@ impl SharedSecret {
     }
 }
 
+#[derive(Clone)]
 pub struct ECDHPubKey {
     pub_key: p384::PublicKey,
 }
@@ -90,6 +91,10 @@ impl ECDHPubKey {
 
     pub(self) fn get_pub_key(&self) -> p384::PublicKey {
         self.pub_key
+    }
+
+    pub fn get_pub_key_to_bytes(&self) -> Vec<u8> {
+        self.pub_key.to_encoded_point(false).to_bytes().to_vec()
     }
 }
 
@@ -113,8 +118,8 @@ impl ECDSAKeys {
         }
     }
 
-    pub fn get_pub_key(&self) -> &ECDSAPubKey {
-        &self.pub_key
+    pub fn get_pub_key(&self) -> ECDSAPubKey {
+        self.pub_key.clone()
     }
 }
 
@@ -140,15 +145,15 @@ impl ECDHKeys {
         ECDHKeys { pub_key, priv_key }
     }
 
-    pub fn get_pub_key(&self) -> &ECDHPubKey {
-        &self.pub_key
+    pub fn get_pub_key(&self) -> ECDHPubKey {
+        self.pub_key.clone()
     }
 
     // Will be point-compresssed (49 byte length)
     pub fn get_pub_key_to_bytes(&self) -> Vec<u8> {
         self.pub_key
             .pub_key
-            .to_encoded_point(true)
+            .to_encoded_point(false)
             .to_bytes()
             .to_vec()
     }
