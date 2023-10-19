@@ -149,7 +149,6 @@ impl ECDHKeys {
         self.pub_key.clone()
     }
 
-    // Will be point-compresssed (49 byte length)
     pub fn get_pub_key_to_bytes(&self) -> Vec<u8> {
         self.pub_key
             .pub_key

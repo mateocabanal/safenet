@@ -314,7 +314,17 @@ mod tests {
     fn verify_init_frame() -> Result<(), Box<dyn std::error::Error>> {
         let init_frame = InitFrame::default();
         let init_frame_2 = InitFrame::default();
-        init_frame.from_peer(&init_frame_2.to_bytes()).unwrap();
+        let init_frame_bytes = init_frame.from_peer(&init_frame_2.to_bytes()).unwrap();
+        let init_frame_2_bytes = init_frame_2.from_peer(&init_frame_bytes).unwrap();
+
+        let init_frame_body_bytes = &init_frame_bytes[23..];
+        let init_frame_body_bytes_2 = &init_frame_2_bytes[23..];
+
+        // Shared secret
+        assert_eq!(
+            init_frame_body_bytes[97..146],
+            init_frame_body_bytes_2[97..146]
+        );
         Ok(())
     }
 }

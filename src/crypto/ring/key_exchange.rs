@@ -1,6 +1,5 @@
 use ring::{
-    agreement::{self},
-    rand,
+    agreement, rand,
     signature::{self, EcdsaKeyPair, KeyPair},
 };
 

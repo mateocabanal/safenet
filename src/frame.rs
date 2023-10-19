@@ -110,10 +110,7 @@ impl TryFrom<&[u8]> for Options {
         let mut current_opt_index = 0usize;
         let mut options_map = HashMap::new();
 
-        #[cfg(test)]
-        {
-            println!("options bytes {:?}", options_bytes);
-        }
+        log::trace!("options bytes {:?}", options_bytes);
 
         log::trace!("\x1b[38;2;238;171;196mBEGIN OPTION PARSING LOOP!\x1b[1;0m\n");
         while let Some(option_slice) = options_bytes[current_opt_index..]
@@ -199,8 +196,36 @@ impl TryFrom<&[u8]> for Options {
     }
 }
 
+impl Options {
+    pub fn get_frame_type(&self) -> FrameType {
+        self.frame_type
+    }
+
+    pub fn get_ip_addr(&self) -> Option<SocketAddr> {
+        self.ip_addr
+    }
+}
+
 pub trait Frame {
     fn to_bytes(&self) -> Vec<u8>;
+}
+
+pub trait ToInitFrame {
+    fn to_frame(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>>;
+}
+
+impl ToInitFrame for Vec<u8> {
+    fn to_frame(&self) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        let options_len = u32::from_be_bytes(self[19..23].try_into()?);
+        let options_range = &self[23..23 + options_len as usize];
+        let options = Options::try_from(options_range)?;
+
+        if options.get_frame_type() == FrameType::Init {
+            InitFrame::default().from_peer(self)
+        } else {
+            Err("Not a InitFrame".into())
+        }
+    }
 }
 
 pub struct InitFrame {
@@ -209,8 +234,49 @@ pub struct InitFrame {
     pub options: Options,
     pub ecdsa_pub_key: ECDSAPubKey,
     pub ecdh_pub_key: ECDHPubKey,
-    pub ecdh_keys: ECDHKeys,
+    pub ecdh_keys: Option<ECDHKeys>,
     pub ecdh_signature: Signature,
+}
+
+impl TryFrom<Box<[u8]>> for InitFrame {
+    type Error = Box<dyn std::error::Error>;
+    fn try_from(frame_bytes: Box<[u8]>) -> Result<InitFrame, Self::Error> {
+        let options_len = u32::from_be_bytes(frame_bytes[19..23].try_into().unwrap());
+        let options_arr = &frame_bytes[23..23 + options_len as usize];
+        let options = Options::try_from(options_arr)?;
+        if options.get_frame_type() != FrameType::Init {
+            return Err("not a InitFrame".into());
+        };
+
+        let id = &frame_bytes[0..=2];
+        let uuid = Uuid::from_slice(&frame_bytes[3..=18]).unwrap();
+        let body = &frame_bytes[23..];
+
+        let init_vars_slice = &body[options_len as usize..];
+
+        let client_ecdsa_key = ECDSAPubKey::from_sec1_bytes(&init_vars_slice[..97]).unwrap();
+        let client_ecdh_key_bytes = &init_vars_slice[97..194];
+        let client_signature = Signature::from_der(&init_vars_slice[194..]).unwrap();
+        //log::trace!("server res: key: {:#?}", client_signature);
+        if client_ecdsa_key
+            .verify(client_ecdh_key_bytes, &client_signature)
+            .is_err()
+        {
+            log::trace!("SIG FAILED :(");
+        }
+
+        let client_ecdh_key = ECDHPubKey::from_sec1_bytes(client_ecdh_key_bytes).unwrap();
+
+        Ok(InitFrame {
+            id: id.try_into()?,
+            uuid: uuid.into_bytes(),
+            options,
+            ecdsa_pub_key: client_ecdsa_key,
+            ecdh_pub_key: client_ecdh_key,
+            ecdh_keys: None,
+            ecdh_signature: client_signature,
+        })
+    }
 }
 
 impl Frame for InitFrame {
@@ -243,12 +309,12 @@ impl Default for InitFrame {
         options.frame_type = FrameType::Init;
         options.init_opts = Some(InitOptions::new_with_enc_type(EncryptionType::Legacy).status(0));
         let ecdsa_pub_key = appstate_r.server_keys.ecdsa.get_pub_key().clone();
-        let ecdh_keys = ECDHKeys::init();
-        let ecdh_pub_key = ecdh_keys.get_pub_key();
+        let ecdh_keys = Some(ECDHKeys::init());
+        let ecdh_pub_key = ecdh_keys.as_ref().unwrap().get_pub_key();
         let ecdh_signature = appstate_r
             .server_keys
             .ecdsa
-            .sign(&ecdh_keys.get_pub_key_to_bytes());
+            .sign(&ecdh_keys.as_ref().unwrap().get_pub_key_to_bytes());
 
         InitFrame {
             id,
@@ -291,7 +357,7 @@ impl InitFrame {
         }
 
         let client_ecdh_key = ECDHPubKey::from_sec1_bytes(client_ecdh_key_bytes).unwrap();
-        let peer_shared_secret = self.ecdh_keys.gen_shared_secret(&client_ecdh_key);
+        let peer_shared_secret = self.ecdh_keys.unwrap().gen_shared_secret(&client_ecdh_key);
 
         log::trace!(
             "client: secret: {:#?}",

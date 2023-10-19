@@ -25,9 +25,14 @@ simple_logger = "4.0.0"
 dialoguer = "0.11"
 serde = "*"
 axum = "*"
-tinyhttp = "0.4.0-rc1"
+warp = "*"
+tinyhttp = { version = "0.4.0-rc3", features=["log"], default-features = false }
 tokio = { version = "1.33", features = ["full"] }
 minreq = "2.10"
+tungstenite = "0.20.1"
+futures = "0.3.28"
+futures-util = "0.3.28"
+tokio-stream = "0.1.14"
 
 [[example]]
 name = "server"
