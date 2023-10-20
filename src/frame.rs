@@ -28,6 +28,7 @@ pub enum EncryptionType {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InitOptions {
     encryption_type: Option<EncryptionType>,
+    nonce_secondary_key: Option<bool>,
     status: u8,
 }
 
@@ -35,8 +36,14 @@ impl InitOptions {
     pub fn new_with_enc_type(enc_type: EncryptionType) -> InitOptions {
         InitOptions {
             encryption_type: Some(enc_type),
+            nonce_secondary_key: Some(true),
             status: 0,
         }
+    }
+
+    pub fn nonce_secondary_key(mut self, nonce_sec_key: bool) -> InitOptions {
+        self.nonce_secondary_key = Some(nonce_sec_key);
+        self
     }
 
     pub fn status(mut self, status: u8) -> InitOptions {
@@ -48,13 +55,29 @@ impl InitOptions {
         self.encryption_type = Some(enc_type);
         self
     }
+
+    pub fn get_encryption_type(&self) -> Option<EncryptionType> {
+        self.encryption_type
+    }
+
+    pub fn get_nonce_secondary_key(&self) -> Option<bool> {
+        self.nonce_secondary_key
+    }
 }
 
 impl Into<Vec<u8>> for InitOptions {
     fn into(self) -> Vec<u8> {
         let enc_type = self.encryption_type.unwrap() as u8;
         let status = self.status;
-        format!("encryption_type = {enc_type}\u{00ae}status = {status}\u{00ae}").into_bytes()
+        let nonce_secondary_key: u8 = if let Some(nonce) = self.nonce_secondary_key {
+            match nonce {
+                false => 0,
+                true => 1,
+            }
+        } else {
+            0
+        };
+        format!("encryption_type = {enc_type}\u{00ae}status = {status}\u{00ae}nonce_secondary_key = {nonce_secondary_key}\u{00ae}").into_bytes()
     }
 }
 
@@ -174,7 +197,18 @@ impl TryFrom<&[u8]> for Options {
                 1 => EncryptionType::Kyber,
                 2u8..=u8::MAX => return Err("enc_type out of bounds".into()),
             };
-            Some(InitOptions::new_with_enc_type(enc_type).status(0))
+
+            // If not defined, it is off
+            let nonce_secondary_key = options_map
+                .get("nonce_secondary_key")
+                .expect("nonce_secondary_key flag not defined")
+                .parse::<u8>()
+                .unwrap();
+            Some(
+                InitOptions::new_with_enc_type(enc_type)
+                    .status(0)
+                    .nonce_secondary_key(nonce_secondary_key == 1),
+            )
         } else {
             None
         };
@@ -203,6 +237,10 @@ impl Options {
 
     pub fn get_ip_addr(&self) -> Option<SocketAddr> {
         self.ip_addr
+    }
+
+    pub fn get_init_opts(&self) -> Option<InitOptions> {
+        self.init_opts
     }
 }
 
@@ -236,6 +274,8 @@ pub struct InitFrame {
     pub ecdh_pub_key: ECDHPubKey,
     pub ecdh_keys: Option<ECDHKeys>,
     pub ecdh_signature: Signature,
+    pub ecdh_pub_nonce_key: Option<ECDHPubKey>,
+    pub ecdh_nonce_keys: Option<ECDHKeys>,
 }
 
 impl TryFrom<Box<[u8]>> for InitFrame {
@@ -256,7 +296,23 @@ impl TryFrom<Box<[u8]>> for InitFrame {
 
         let client_ecdsa_key = ECDSAPubKey::from_sec1_bytes(&init_vars_slice[..97]).unwrap();
         let client_ecdh_key_bytes = &init_vars_slice[97..194];
-        let client_signature = Signature::from_der(&init_vars_slice[194..]).unwrap();
+        let is_second_ecdh_key = options
+            .get_init_opts()
+            .unwrap()
+            .get_nonce_secondary_key()
+            .unwrap();
+        let (sec_ecdh_pub_key, client_signature) = if is_second_ecdh_key {
+            // Client has confirmed they sent another ECDH key.
+
+            let sec_key_bytes = &init_vars_slice[194..291];
+            let sec_key = ECDHPubKey::from_sec1_bytes(sec_key_bytes).unwrap();
+            (
+                Some(sec_key),
+                Signature::from_der(&init_vars_slice[291..]).unwrap(),
+            )
+        } else {
+            (None, Signature::from_der(&init_vars_slice[194..]).unwrap())
+        };
         //log::trace!("server res: key: {:#?}", client_signature);
         if client_ecdsa_key
             .verify(client_ecdh_key_bytes, &client_signature)
@@ -275,6 +331,8 @@ impl TryFrom<Box<[u8]>> for InitFrame {
             ecdh_pub_key: client_ecdh_key,
             ecdh_keys: None,
             ecdh_signature: client_signature,
+            ecdh_pub_nonce_key: sec_ecdh_pub_key,
+            ecdh_nonce_keys: None,
         })
     }
 }
@@ -283,16 +341,30 @@ impl Frame for InitFrame {
     fn to_bytes(&self) -> Vec<u8> {
         let options_bytes: Vec<u8> = self.options.into();
         let options_size: u32 = options_bytes.len() as u32;
-        [
-            self.id.as_slice(),
-            self.uuid.as_slice(),
-            &options_size.to_be_bytes(),
-            &options_bytes,
-            &self.ecdsa_pub_key.to_bytes(),
-            &self.ecdh_pub_key.get_pub_key_to_bytes(),
-            &self.ecdh_signature.to_bytes(),
-        ]
-        .concat()
+        if let Some(nonce) = &self.ecdh_pub_nonce_key {
+            [
+                self.id.as_slice(),
+                self.uuid.as_slice(),
+                &options_size.to_be_bytes(),
+                &options_bytes,
+                &self.ecdsa_pub_key.to_bytes(),
+                &self.ecdh_pub_key.get_pub_key_to_bytes(),
+                &nonce.get_pub_key_to_bytes(),
+                &self.ecdh_signature.to_bytes(),
+            ]
+            .concat()
+        } else {
+            [
+                self.id.as_slice(),
+                self.uuid.as_slice(),
+                &options_size.to_be_bytes(),
+                &options_bytes,
+                &self.ecdsa_pub_key.to_bytes(),
+                &self.ecdh_pub_key.get_pub_key_to_bytes(),
+                &self.ecdh_signature.to_bytes(),
+            ]
+            .concat()
+        }
     }
 }
 
@@ -307,10 +379,18 @@ impl Default for InitFrame {
 
         let mut options = Options::default();
         options.frame_type = FrameType::Init;
-        options.init_opts = Some(InitOptions::new_with_enc_type(EncryptionType::Legacy).status(0));
+        options.init_opts = Some(
+            InitOptions::new_with_enc_type(EncryptionType::Legacy)
+                .status(0)
+                .nonce_secondary_key(true),
+        );
         let ecdsa_pub_key = appstate_r.server_keys.ecdsa.get_pub_key().clone();
         let ecdh_keys = Some(ECDHKeys::init());
         let ecdh_pub_key = ecdh_keys.as_ref().unwrap().get_pub_key();
+
+        let ecdh_nonce_keys = Some(ECDHKeys::init());
+        let ecdh_pub_nonce_key = Some(ecdh_nonce_keys.as_ref().unwrap().get_pub_key());
+
         let ecdh_signature = appstate_r
             .server_keys
             .ecdsa
@@ -324,6 +404,8 @@ impl Default for InitFrame {
             ecdh_pub_key,
             ecdh_keys,
             ecdh_signature,
+            ecdh_nonce_keys,
+            ecdh_pub_nonce_key,
         }
     }
 }
@@ -347,14 +429,38 @@ impl InitFrame {
 
         let client_ecdsa_key = ECDSAPubKey::from_sec1_bytes(&init_vars_slice[..97]).unwrap();
         let client_ecdh_key_bytes = &init_vars_slice[97..194];
-        let client_signature = Signature::from_der(&init_vars_slice[194..]).unwrap();
+
+        // If client sends an additional ECDH key (for the nonce)
+        let is_second_ecdh_key = options
+            .get_init_opts()
+            .unwrap()
+            .get_nonce_secondary_key()
+            .unwrap();
+
+        let (sec_shared_secret, client_signature, is_nonce) = if is_second_ecdh_key {
+            // Client has confirmed they sent another ECDH key.
+
+            let sec_key_bytes = &init_vars_slice[194..291];
+            let sec_key = ECDHPubKey::from_sec1_bytes(sec_key_bytes).unwrap();
+            let sec_ecdh_keys = self.ecdh_nonce_keys.unwrap();
+            let sec_shared_secret = sec_ecdh_keys.gen_shared_secret(&sec_key);
+            (
+                Some(sec_shared_secret),
+                Signature::from_der(&init_vars_slice[291..]).unwrap(),
+                true,
+            )
+        } else {
+            (
+                None,
+                Signature::from_der(&init_vars_slice[194..]).unwrap(),
+                false,
+            )
+        };
+
         //log::trace!("server res: key: {:#?}", client_signature);
-        if client_ecdsa_key
+        client_ecdsa_key
             .verify(client_ecdh_key_bytes, &client_signature)
-            .is_err()
-        {
-            log::trace!("SIG FAILED :(");
-        }
+            .expect("signature verification failed :(");
 
         let client_ecdh_key = ECDHPubKey::from_sec1_bytes(client_ecdh_key_bytes).unwrap();
         let peer_shared_secret = self.ecdh_keys.unwrap().gen_shared_secret(&client_ecdh_key);
@@ -387,6 +493,8 @@ impl InitFrame {
                 .to_string())
             .ecdsa(client_ecdsa_key)
             .ecdh(peer_shared_secret)
+            .ip(ip_addr_of_peer)
+            .ecdh_secondary(sec_shared_secret)
             .uuid(uuid);
 
         let client_keys = &mut APPSTATE
@@ -394,24 +502,35 @@ impl InitFrame {
             .expect("failed to get write lock")
             .client_keys;
 
-        if let Some(ip_addr) = ip_addr_of_peer {
-            client_keys.push(client_keypair.ip(ip_addr));
-        } else {
-            client_keys.push(client_keypair);
-        }
+        client_keys.push(client_keypair);
 
         let options_bytes: Vec<u8> = self.options.into();
         let options_size: u32 = options_bytes.len() as u32;
-        Ok([
-            self.id.as_slice(),
-            self.uuid.as_slice(),
-            &options_size.to_be_bytes(),
-            &options_bytes,
-            &self.ecdsa_pub_key.to_bytes(),
-            &self.ecdh_pub_key.get_pub_key_to_bytes(),
-            &self.ecdh_signature.to_bytes(),
-        ]
-        .concat())
+
+        if is_nonce {
+            Ok([
+                self.id.as_slice(),
+                self.uuid.as_slice(),
+                &options_size.to_be_bytes(),
+                &options_bytes,
+                &self.ecdsa_pub_key.to_bytes(),
+                &self.ecdh_pub_key.get_pub_key_to_bytes(),
+                &self.ecdh_pub_nonce_key.unwrap().get_pub_key_to_bytes(),
+                &self.ecdh_signature.to_bytes(),
+            ]
+            .concat())
+        } else {
+            Ok([
+                self.id.as_slice(),
+                self.uuid.as_slice(),
+                &options_size.to_be_bytes(),
+                &options_bytes,
+                &self.ecdsa_pub_key.to_bytes(),
+                &self.ecdh_pub_key.get_pub_key_to_bytes(),
+                &self.ecdh_signature.to_bytes(),
+            ]
+            .concat())
+        }
     }
 }
 
@@ -483,8 +602,14 @@ impl DataFrame {
             .raw_secret_bytes();
 
         let mut hasher = Blake2b96::new();
-        hasher.update(shared_secret_bytes);
+        if let Some(nonce) = &target_keychain.ecdh_secondary {
+            log::trace!("encoding with secondary ecdh key");
+            hasher.update(nonce.raw_secret_bytes());
+        } else {
+            hasher.update(shared_secret_bytes)
+        }
         let res = hasher.finalize();
+
         let encrypted_body = target_keychain
             .chacha
             .as_ref()
@@ -519,8 +644,14 @@ impl DataFrame {
             .raw_secret_bytes();
 
         let mut hasher = Blake2b96::new();
-        hasher.update(shared_secret_bytes);
-        let res = hasher.finalize();
+        let res = if let Some(nonce) = &target_keychain.ecdh_secondary {
+            log::trace!("decrypting frame with secondary ecdh key");
+            hasher.update(nonce.raw_secret_bytes());
+            hasher.finalize()
+        } else {
+            hasher.update(shared_secret_bytes);
+            hasher.finalize()
+        };
         let encrypted_body = target_keychain
             .chacha
             .as_ref()
@@ -553,14 +684,22 @@ impl DataFrame {
             .raw_secret_bytes();
 
         let mut hasher = Blake2b96::new();
-        hasher.update(shared_secret_bytes);
-        let res = hasher.finalize();
+        let res = if let Some(nonce) = &target_keychain.ecdh_secondary {
+            log::trace!("decrypting frame with secondary ecdh key");
+            hasher.update(nonce.raw_secret_bytes());
+            hasher.finalize()
+        } else {
+            hasher.update(shared_secret_bytes);
+            hasher.finalize()
+        };
+
         let decrypted_body = target_keychain
             .chacha
             .as_ref()
             .unwrap()
             .cipher
             .decrypt(generic_array::GenericArray::from_slice(&res), &*self.body);
+
         match decrypted_body {
             Ok(body) => {
                 self.body = body.into_boxed_slice();

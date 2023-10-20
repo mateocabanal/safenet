@@ -40,6 +40,7 @@ pub struct ClientKeypair {
     pub chacha: Option<ChaChaCipher>,
     pub uuid: Uuid,
     pub ip: Option<SocketAddr>,
+    pub ecdh_secondary: Option<SharedSecret>,
 }
 
 impl std::fmt::Debug for ClientKeypair {
@@ -64,6 +65,7 @@ impl ClientKeypair {
             chacha: None,
             uuid: Uuid::new_v4(),
             ip: None,
+            ecdh_secondary: None,
         };
     }
 
@@ -83,13 +85,18 @@ impl ClientKeypair {
         self
     }
 
-    pub fn ip(mut self, ip: SocketAddr) -> Self {
-        self.ip = Some(ip);
+    pub fn ip(mut self, ip: Option<SocketAddr>) -> Self {
+        self.ip = ip;
         self
     }
 
     pub fn uuid(mut self, uuid: Uuid) -> Self {
         self.uuid = uuid;
+        self
+    }
+
+    pub fn ecdh_secondary(mut self, sec_ecdh: Option<SharedSecret>) -> Self {
+        self.ecdh_secondary = sec_ecdh;
         self
     }
 }

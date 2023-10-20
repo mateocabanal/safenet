@@ -28,6 +28,8 @@ async fn main() {
     // is a websocket sender.
 
     use warp::http::header::{HeaderMap, HeaderValue};
+    
+    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Info).env().init().unwrap();
 
     let users = Users::default();
     // Turn our "state" into a new Filter...
