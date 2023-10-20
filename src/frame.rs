@@ -1,7 +1,7 @@
 use std::{collections::HashMap, net::SocketAddr};
 use uuid::Uuid;
 
-use blake2::{digest::consts::U12, Blake2b, Digest};
+use blake2::{digest::consts::U24, Blake2b, Digest};
 use chacha20poly1305::aead::Aead;
 
 use crate::{
@@ -10,7 +10,7 @@ use crate::{
     APPSTATE,
 };
 
-type Blake2b96 = Blake2b<U12>;
+type Blake2b192 = Blake2b<U24>;
 
 #[derive(Debug, Clone, Default, Copy, PartialEq, Eq)]
 pub enum FrameType {
@@ -601,7 +601,7 @@ impl DataFrame {
             .ok_or("failed to get ecdh")?
             .raw_secret_bytes();
 
-        let mut hasher = Blake2b96::new();
+        let mut hasher = Blake2b192::new();
         if let Some(nonce) = &target_keychain.ecdh_secondary {
             log::trace!("encoding with secondary ecdh key");
             hasher.update(nonce.raw_secret_bytes());
@@ -643,7 +643,7 @@ impl DataFrame {
             .ok_or("failed to get ecdh")?
             .raw_secret_bytes();
 
-        let mut hasher = Blake2b96::new();
+        let mut hasher = Blake2b192::new();
         let res = if let Some(nonce) = &target_keychain.ecdh_secondary {
             log::trace!("decrypting frame with secondary ecdh key");
             hasher.update(nonce.raw_secret_bytes());
@@ -683,7 +683,7 @@ impl DataFrame {
             .ok_or("failed to get ecdh")?
             .raw_secret_bytes();
 
-        let mut hasher = Blake2b96::new();
+        let mut hasher = Blake2b192::new();
         let res = if let Some(nonce) = &target_keychain.ecdh_secondary {
             log::trace!("decrypting frame with secondary ecdh key");
             hasher.update(nonce.raw_secret_bytes());
@@ -725,7 +725,7 @@ impl DataFrame {
             .ok_or("failed to get ecdh")?
             .raw_secret_bytes();
 
-        let mut hasher = Blake2b96::new();
+        let mut hasher = Blake2b192::new();
         hasher.update(shared_secret_bytes);
         let res = hasher.finalize();
         let encrypted_body = keypair
@@ -752,7 +752,7 @@ impl DataFrame {
             .ok_or("failed to get ecdh")?
             .raw_secret_bytes();
 
-        let mut hasher = Blake2b96::new();
+        let mut hasher = Blake2b192::new();
         hasher.update(shared_secret_bytes);
         let res = hasher.finalize();
         log::trace!("len of hash (blake2b96): {:?}", &res.len());
