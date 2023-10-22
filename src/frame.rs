@@ -1,3 +1,7 @@
+//! The `frame` module contains code relevent to the parsing of Frames.
+//! As of the time of writing, the Safenet spec defines two types of Frames,
+//! InitFrames and DataFrames.
+
 use std::{collections::HashMap, net::SocketAddr};
 use uuid::Uuid;
 
@@ -25,6 +29,8 @@ pub enum EncryptionType {
     Legacy = 0,
     Kyber = 1,
 }
+
+/// A specific set of Options only available to InitFrame's
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct InitOptions {
     encryption_type: Option<EncryptionType>,
@@ -33,6 +39,9 @@ pub struct InitOptions {
 }
 
 impl InitOptions {
+    /// A feature to be fully implemented in the future. When Safenet supports different encryption
+    /// standards, this will be used. As of now `EncryptionType::Legacy` is the only encryption
+    /// type
     pub fn new_with_enc_type(enc_type: EncryptionType) -> InitOptions {
         InitOptions {
             encryption_type: Some(enc_type),
@@ -41,11 +50,16 @@ impl InitOptions {
         }
     }
 
+    /// Determines whether or not to include a secondary ECDH key for a secure nonce.
+    /// This is true by default (should never want this false, as Safenet will rely on using a hash
+    /// of the sent frame if no secondary ECDH key is sent)
     pub fn nonce_secondary_key(mut self, nonce_sec_key: bool) -> InitOptions {
         self.nonce_secondary_key = Some(nonce_sec_key);
         self
     }
 
+    /// Status of encryption. Some protocols will require multiple InitFrames.
+    /// As of now, the default encryption type does not need more than 1 InitFrame.
     pub fn status(mut self, status: u8) -> InitOptions {
         self.status = status;
         self
@@ -101,6 +115,7 @@ impl Default for Options {
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<Vec<u8>> for Options {
     fn into(self) -> Vec<u8> {
         let header_as_string = format!("frame_type = {}\u{00ae}", self.frame_type as u8);
@@ -230,6 +245,7 @@ impl TryFrom<&[u8]> for Options {
     }
 }
 
+/// Options that might be present in any frame
 impl Options {
     pub fn get_frame_type(&self) -> FrameType {
         self.frame_type
@@ -266,6 +282,7 @@ impl ToInitFrame for Vec<u8> {
     }
 }
 
+/// As the name suggests, this is indeed an InitFrame
 pub struct InitFrame {
     pub id: [u8; 3],
     pub uuid: [u8; 16],
@@ -370,6 +387,7 @@ impl Frame for InitFrame {
 
 #[allow(clippy::field_reassign_with_default)]
 impl Default for InitFrame {
+    /// Generates a InitFrame ready to be sent to another client.
     fn default() -> InitFrame {
         let appstate_r = APPSTATE
             .try_read()
@@ -411,6 +429,14 @@ impl Default for InitFrame {
 }
 
 impl InitFrame {
+    /// Used when you have received an InitFrame from another peer. Moves out of the current
+    /// InitFrame object, so `from_peer` converts `self` into bytes that are ready to be sent to
+    /// the peer.
+    /// ```ignore
+    /// let new_init_frame = InitFrame::default();
+    /// let received_init_frame: Vec<u8> = received_bytes;
+    /// let init_frame_bytes_to_be_sent = new_init_frame.from_peer(&received_init_frame).unwrap();
+    /// ```
     pub fn from_peer(self, frame_bytes: &[u8]) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
         let id = &frame_bytes[0..=2];
         let uuid = Uuid::from_slice(&frame_bytes[3..=18]).unwrap();
@@ -534,6 +560,9 @@ impl InitFrame {
     }
 }
 
+/// `DataFrame`s can only be sent to clients that you have paired with via `InitFrame`.
+/// `DataFrame`s contain metadata (options, uuid) just like `InitFrame`s, however the body
+/// (excluding the options) are encrypted.
 #[derive(Debug, Clone)]
 pub struct DataFrame {
     pub id: Option<[u8; 3]>,
