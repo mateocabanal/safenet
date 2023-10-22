@@ -11,7 +11,7 @@ pub use uuid;
 #[cfg(test)]
 mod tests {
     use crate::crypto::key_exchange::{ECDHKeys, ECDHPubKey, ECDSAKeys, ECDSAPubKey, Signature};
-    use chacha20poly1305::{AeadCore, ChaCha20Poly1305};
+    use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
     use simple_logger::SimpleLogger;
 
     use crate::{
@@ -199,7 +199,7 @@ mod tests {
 
         let plaintext = "hi bob!";
 
-        let nonce = ChaCha20Poly1305::generate_nonce(&mut rand::rngs::OsRng);
+        let nonce = XChaCha20Poly1305::generate_nonce(&mut rand::rngs::OsRng);
         let enc_plaintext = alice_cipher
             .cipher
             .encrypt(&nonce, plaintext.as_bytes())
