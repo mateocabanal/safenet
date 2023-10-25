@@ -95,11 +95,12 @@ impl Into<Vec<u8>> for InitOptions {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Options {
     frame_type: FrameType,
     ip_addr: Option<SocketAddr>,
     init_opts: Option<InitOptions>,
+    map: HashMap<String, String>,
 }
 
 impl Default for Options {
@@ -111,6 +112,7 @@ impl Default for Options {
                 .expect("could not acquire read handle on appstate")
                 .server_addr,
             init_opts: None,
+            map: HashMap::new(),
         }
     }
 }
@@ -239,6 +241,7 @@ impl TryFrom<&[u8]> for Options {
                 None
             },
             init_opts,
+            map: options_map,
         };
 
         Ok(options)
@@ -257,6 +260,10 @@ impl Options {
 
     pub fn get_init_opts(&self) -> Option<InitOptions> {
         self.init_opts
+    }
+
+    pub fn get_map(&self) -> &HashMap<String, String> {
+        &self.map
     }
 }
 
@@ -356,7 +363,7 @@ impl TryFrom<Box<[u8]>> for InitFrame {
 
 impl Frame for InitFrame {
     fn to_bytes(&self) -> Vec<u8> {
-        let options_bytes: Vec<u8> = self.options.into();
+        let options_bytes: Vec<u8> = self.options.clone().into();
         let options_size: u32 = options_bytes.len() as u32;
         if let Some(nonce) = &self.ecdh_pub_nonce_key {
             [
@@ -558,6 +565,10 @@ impl InitFrame {
             .concat())
         }
     }
+
+    pub fn set_options(&mut self, opts: Options) {
+        self.options = opts;
+    }
 }
 
 /// `DataFrame`s can only be sent to clients that you have paired with via `InitFrame`.
@@ -587,7 +598,7 @@ impl Default for DataFrame {
 
 impl Frame for DataFrame {
     fn to_bytes(&self) -> Vec<u8> {
-        let options_bytes: Vec<u8> = self.options.into();
+        let options_bytes: Vec<u8> = self.options.clone().into();
         let options_size: u32 = options_bytes.len() as u32;
         [
             self.id.unwrap().as_slice(),
