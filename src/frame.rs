@@ -2,6 +2,7 @@
 //! As of the time of writing, the Safenet spec defines two types of Frames,
 //! InitFrames and DataFrames.
 
+use std::fmt::Write;
 use std::{collections::HashMap, net::SocketAddr};
 use uuid::Uuid;
 
@@ -127,17 +128,27 @@ impl Into<Vec<u8>> for Options {
             "".to_string()
         };
 
+        let custom_headers = self
+            .map
+            .into_iter()
+            .fold(String::new(), |mut output, (k, v)| {
+                write!(output, "{k} = {v}\u{00ae}").unwrap();
+                output
+            });
+
         if self.frame_type == FrameType::Init {
             [
                 header_as_string.into_bytes(),
                 ip_addr_as_string.into_bytes(),
                 self.init_opts.unwrap().into(),
+                custom_headers.into_bytes(),
             ]
             .concat()
         } else {
             [
                 header_as_string.into_bytes(),
                 ip_addr_as_string.into_bytes(),
+                custom_headers.into_bytes(),
             ]
             .concat()
         }
@@ -262,8 +273,8 @@ impl Options {
         self.init_opts
     }
 
-    pub fn get_map(&self) -> &HashMap<String, String> {
-        &self.map
+    pub fn get_map(&mut self) -> &mut HashMap<String, String> {
+        &mut self.map
     }
 }
 
