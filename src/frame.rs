@@ -269,6 +269,10 @@ impl Options {
 
 pub trait Frame {
     fn to_bytes(&self) -> Vec<u8>;
+    fn from_bytes<T>(bytes: T) -> Result<Self, Box<dyn std::error::Error>>
+    where
+        T: Into<Box<[u8]>>,
+        Self: std::marker::Sized;
 }
 
 pub trait ToInitFrame {
@@ -389,6 +393,14 @@ impl Frame for InitFrame {
             ]
             .concat()
         }
+    }
+
+    fn from_bytes<T>(bytes: T) -> Result<Self, Box<dyn std::error::Error>>
+    where
+        T: Into<Box<[u8]>>,
+    {
+        let boxed_bytes = bytes.into();
+        InitFrame::try_from(boxed_bytes)
     }
 }
 
@@ -609,6 +621,13 @@ impl Frame for DataFrame {
         ]
         .concat()
     }
+    fn from_bytes<T>(bytes: T) -> Result<Self, Box<dyn std::error::Error>>
+    where
+        T: Into<Box<[u8]>>,
+    {
+        let boxed_bytes = bytes.into();
+        DataFrame::try_from(boxed_bytes)
+    }
 }
 
 impl DataFrame {
@@ -810,8 +829,8 @@ impl DataFrame {
 }
 
 impl TryFrom<Box<[u8]>> for DataFrame {
-    type Error = String;
-    fn try_from(frame_slice: Box<[u8]>) -> Result<DataFrame, String> {
+    type Error = Box<dyn std::error::Error>;
+    fn try_from(frame_slice: Box<[u8]>) -> Result<DataFrame, Box<dyn std::error::Error>> {
         log::trace!("size of frame: {}", frame_slice.len());
         let id = frame_slice[0..=2].try_into().unwrap();
         let uuid = frame_slice[3..=18].try_into().unwrap();
@@ -820,7 +839,7 @@ impl TryFrom<Box<[u8]>> for DataFrame {
         let body = frame_slice[23 + options_len as usize..].into();
 
         if std::str::from_utf8(&frame_slice[0..=2]).is_err() {
-            return Err("id is not a valid string".to_owned());
+            return Err("id is not a valid string".into());
         };
 
         let id = Some(id);

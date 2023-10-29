@@ -1,7 +1,5 @@
-use std::collections::VecDeque;
-use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
-use std::sync::mpsc::{Receiver, Sender};
-use std::sync::{mpsc, Arc, Mutex, OnceLock, RwLock};
+use std::net::{IpAddr, SocketAddr, TcpListener};
+use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -14,7 +12,7 @@ use safenet::{
     APPSTATE,
 };
 use tinyhttp::prelude::*;
-use tungstenite::{accept, accept_hdr, handshake, Message, WebSocket};
+use tungstenite::{accept_hdr, handshake, Message};
 
 #[get("/http/test")]
 fn http_test() -> &'static str {
@@ -43,7 +41,7 @@ fn conn_init(req: Request) -> Response {
 #[post("/echo")]
 fn server_msg(req: Request) -> Response {
     let req_bytes = req.get_raw_body().clone();
-    let data_frame: Result<DataFrame, String> = req_bytes.into_boxed_slice().try_into();
+    let data_frame = DataFrame::from_bytes(req_bytes);
     if data_frame.is_err() {
         log::trace!("failed to parse data frame");
         return Response::new()
@@ -53,9 +51,9 @@ fn server_msg(req: Request) -> Response {
     }
     let mut data_frame = data_frame.expect("failed to parse data");
 
-    let dec_body = data_frame.decode_frame();
+    let dec_body_status = data_frame.decode_frame();
 
-    if let Err(e) = dec_body {
+    if let Err(e) = dec_body_status {
         log::error!("failed to decrypt frame: {e}");
         Response::new()
             .body(vec![])

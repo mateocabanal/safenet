@@ -47,7 +47,8 @@ mod tests {
     #[post("/echo")]
     fn server_msg(req: Request) -> Response {
         let req_bytes = req.get_raw_body().clone();
-        let data_frame: Result<DataFrame, String> = req_bytes.into_boxed_slice().try_into();
+        let data_frame: Result<DataFrame, Box<dyn std::error::Error>> =
+            DataFrame::from_bytes(req_bytes);
         if data_frame.is_err() {
             log::trace!("failed to parse data frame");
             return Response::new()
@@ -295,7 +296,7 @@ mod tests {
         encrypted_frame.encode_frame(first_pair.uuid)?;
         let enc_body = encrypted_frame.to_bytes();
         println!("decoding frame ...");
-        let mut recipient_frame = DataFrame::try_from(enc_body.into_boxed_slice())?;
+        let mut recipient_frame = DataFrame::from_bytes(enc_body)?;
         recipient_frame.decode_frame_from_keypair(first_pair)?;
 
         Ok(())
