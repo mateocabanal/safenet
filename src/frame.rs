@@ -109,7 +109,7 @@ impl Default for Options {
         Options {
             frame_type: FrameType::Data,
             ip_addr: APPSTATE
-                .try_read()
+                .read()
                 .expect("could not acquire read handle on appstate")
                 .server_addr,
             init_opts: None,
@@ -132,7 +132,7 @@ impl Into<Vec<u8>> for Options {
             .map
             .into_iter()
             .fold(String::new(), |mut output, (k, v)| {
-                write!(output, "{k} = {v}\u{00ae}").unwrap();
+                output += format!("{k} = {v}\u{00ae}").as_str();
                 output
             });
 
@@ -180,19 +180,13 @@ impl TryFrom<&[u8]> for Options {
             let equal_sign_pos = option_slice
                 .iter()
                 .position(|ascii_code| *ascii_code == 61)
-                .expect("could not find '=' in option");
+                .ok_or("could not find '=' in option")?;
             let header_key = &option_slice[..equal_sign_pos];
             let header_value = &option_slice[equal_sign_pos + 1..option_slice.len() - 1];
 
-            let header_key_str = std::str::from_utf8(header_key)
-                .expect("not a valid str")
-                .trim()
-                .to_string();
+            let header_key_str = std::str::from_utf8(header_key)?.trim().to_string();
 
-            let header_value_str = std::str::from_utf8(header_value)
-                .expect("not a valid value str")
-                .trim()
-                .to_string();
+            let header_value_str = std::str::from_utf8(header_value)?.trim().to_string();
 
             log::trace!("header: {header_key_str} = {header_value_str}");
 
@@ -205,9 +199,8 @@ impl TryFrom<&[u8]> for Options {
 
         let frame_type = match options_map
             .get("frame_type")
-            .expect("frame_type option not sent!")
-            .parse::<u8>()
-            .expect("frame_type value not a u8")
+            .ok_or("frame_type option not sent!")?
+            .parse::<u8>()?
         {
             0 => FrameType::Init,
             1 => FrameType::Data,
@@ -217,9 +210,8 @@ impl TryFrom<&[u8]> for Options {
         let init_opts = if frame_type == FrameType::Init {
             let enc_type = match options_map
                 .get("encryption_type")
-                .expect("encryption_type flag not found")
-                .parse::<u8>()
-                .unwrap()
+                .ok_or("encryption_type flag not found")?
+                .parse::<u8>()?
             {
                 0 => EncryptionType::Legacy,
                 1 => EncryptionType::Kyber,
@@ -229,9 +221,8 @@ impl TryFrom<&[u8]> for Options {
             // If not defined, it is off
             let nonce_secondary_key = options_map
                 .get("nonce_secondary_key")
-                .expect("nonce_secondary_key flag not defined")
-                .parse::<u8>()
-                .unwrap();
+                .ok_or("nonce_secondary_key flag not defined")?
+                .parse::<u8>()?;
             Some(
                 InitOptions::new_with_enc_type(enc_type)
                     .status(0)
@@ -420,7 +411,7 @@ impl Default for InitFrame {
     /// Generates a InitFrame ready to be sent to another client.
     fn default() -> InitFrame {
         let appstate_r = APPSTATE
-            .try_read()
+            .read()
             .expect("could not get read handle on appstate");
         let id = appstate_r.user_id;
         let uuid = appstate_r.uuid.into_bytes();
@@ -738,7 +729,7 @@ impl DataFrame {
     }
 
     pub fn decode_frame(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        let target_uuid = Uuid::from_bytes(self.uuid.unwrap());
+        let target_uuid = Uuid::from_bytes(self.uuid.ok_or("self.uuid is invalid")?);
         log::trace!("target_uuid: {target_uuid}");
 
         let app_state = APPSTATE.read()?;
@@ -766,7 +757,7 @@ impl DataFrame {
         let decrypted_body = target_keychain
             .chacha
             .as_ref()
-            .unwrap()
+            .ok_or("failed to decrypt body")?
             .cipher
             .decrypt(generic_array::GenericArray::from_slice(&res), &*self.body);
 
@@ -843,11 +834,11 @@ impl TryFrom<Box<[u8]>> for DataFrame {
     type Error = Box<dyn std::error::Error>;
     fn try_from(frame_slice: Box<[u8]>) -> Result<DataFrame, Box<dyn std::error::Error>> {
         log::trace!("size of frame: {}", frame_slice.len());
-        let id = frame_slice[0..=2].try_into().unwrap();
-        let uuid = frame_slice[3..=18].try_into().unwrap();
-        let options_len = u32::from_be_bytes(frame_slice[19..=22].try_into().unwrap());
-        let options = Options::try_from(&frame_slice[23..23 + options_len as usize]).unwrap();
-        let body = frame_slice[23 + options_len as usize..].into();
+        let id = frame_slice[0..=2].try_into()?;
+        let uuid = frame_slice[3..=18].try_into()?;
+        let options_len = usize::try_from(u32::from_be_bytes(frame_slice[19..=22].try_into()?))?;
+        let options = Options::try_from(&frame_slice[23..23 + options_len])?;
+        let body = frame_slice[23 + options_len..].into();
 
         if std::str::from_utf8(&frame_slice[0..=2]).is_err() {
             return Err("id is not a valid string".into());
@@ -855,6 +846,8 @@ impl TryFrom<Box<[u8]>> for DataFrame {
 
         let id = Some(id);
         let uuid = Some(uuid);
+
+        log::trace!("data frame succesfully parsed");
 
         Ok(DataFrame {
             id,

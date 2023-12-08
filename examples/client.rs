@@ -2,7 +2,7 @@ use clap::Parser;
 use dialoguer::Input;
 use minreq::Request;
 use safenet::{
-    frame::{Frame, InitFrame, DataFrame},
+    frame::{DataFrame, Frame, InitFrame},
     APPSTATE,
 };
 
@@ -18,7 +18,6 @@ struct Args {
     #[arg(short, long)]
     id: String,
 }
-
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     simple_logger::SimpleLogger::new()

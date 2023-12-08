@@ -18,6 +18,7 @@ local-ip-address = "0.5.1"
 cfg-if = "1.0.0"
 pqc_kyber = { version = "0.7.1", features = ["std", "kyber1024"] }
 ring = { version = "0.17.3", features = ["wasm32_unknown_unknown_js"], optional = true }
+parking_lot = { version = "0.12.1", features = ["deadlock_detection"] }
 
 [dev-dependencies]
 clap = { version = "4.2.1", features = ["derive"] }
@@ -26,17 +27,14 @@ dialoguer = "0.11"
 serde = "*"
 axum = "*"
 warp = "*"
-tinyhttp = { version = "0.4.0-rc3", features=["log"], default-features = false }
+tinyhttp = { version = "0.4.0-rc5", features=["log"], default-features = false }
 tokio = { version = "1.33", features = ["full"] }
 minreq = "2.10"
 tungstenite = "0.20.1"
 futures = "0.3.28"
 futures-util = "0.3.28"
 tokio-stream = "0.1.14"
-
-[[example]]
-name = "server"
-required-features = ["server"]
+criterion = "0.5.1"
 
 [features]
 default = ["server", "client", "rust_crypto"]
@@ -44,6 +42,14 @@ client = []
 server = []
 rust_crypto = ["dep:p384"]
 ring = ["dep:ring"]
+
+[[bench]]
+name = "init_frame_enc"
+harness = false
+
+[[bench]]
+name = "data_frame_enc"
+harness = false
 
 [lib]
 crate-type = ["cdylib", "rlib"]
