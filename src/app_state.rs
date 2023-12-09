@@ -58,7 +58,7 @@ impl std::fmt::Debug for ClientKeypair {
 
 impl ClientKeypair {
     pub fn new() -> ClientKeypair {
-        return ClientKeypair {
+        ClientKeypair {
             id: None,
             ecdsa: None,
             ecdh: None,
@@ -66,7 +66,7 @@ impl ClientKeypair {
             uuid: Uuid::new_v4(),
             ip: None,
             ecdh_secondary: None,
-        };
+        }
     }
 
     pub fn id(mut self, id: String) -> Self {
@@ -110,7 +110,7 @@ impl ServerKeys {
     pub fn init() -> ServerKeys {
         let ecdsa = ECDSAKeys::init();
         let ecdh = ECDHKeys::init();
-        return ServerKeys { ecdsa, ecdh };
+        ServerKeys { ecdsa, ecdh }
     }
 }
 
