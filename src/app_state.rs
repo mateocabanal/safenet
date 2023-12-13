@@ -3,25 +3,22 @@ use crate::crypto::{
     key_exchange::{ECDHKeys, ECDSAKeys, ECDSAPubKey, SharedSecret},
 };
 use once_cell::sync::Lazy;
-use std::{net::SocketAddr, sync::RwLock};
+use std::{collections::HashMap, net::SocketAddr, sync::RwLock};
 use uuid::Uuid;
 
 pub struct AppState {
     pub server_keys: ServerKeys,
-    pub client_keys: Vec<ClientKeypair>,
+    pub client_keys: HashMap<Uuid, ClientKeypair>,
     pub is_http_server_on: bool,
     pub server_addr: Option<SocketAddr>,
     pub user_id: [u8; 3],
     pub uuid: Uuid,
 }
 
-unsafe impl Send for AppState {}
-unsafe impl Sync for AppState {}
-
 impl AppState {
     pub fn init() -> AppState {
         let server_keys = ServerKeys::init();
-        let client_keys = vec![];
+        let client_keys = HashMap::new();
         AppState {
             server_keys,
             client_keys,

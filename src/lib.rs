@@ -267,8 +267,8 @@ mod tests {
 
         // NOTE: WRITE HELD!
         let mut appstate_rw = APPSTATE.write()?;
-        appstate_rw.client_keys.push(aaa_keys);
-        appstate_rw.client_keys.push(bbb_keys);
+        appstate_rw.client_keys.insert(aaa_keys.uuid, aaa_keys);
+        appstate_rw.client_keys.insert(bbb_keys.uuid, bbb_keys);
         drop(appstate_rw);
         // NOTE: WRITE DROPPED!
 
@@ -277,7 +277,8 @@ mod tests {
         let first_pair = app_state
             .client_keys
             .iter()
-            .find(|i| i.id.as_ref().ok_or("failed to get id as bytes").unwrap() == "aaa")
+            .find(|(_, i)| i.id.as_ref().ok_or("failed to get id as bytes").unwrap() == "aaa")
+            .map(|(_, i)| i)
             .ok_or("could not find keypair")?;
 
         log::info!("first_pair uuid: {}", first_pair.uuid);
@@ -285,7 +286,8 @@ mod tests {
         let second_pair = app_state
             .client_keys
             .iter()
-            .find(|i| i.id.as_ref().ok_or("failed to get id as bytes").unwrap() == "bbb")
+            .find(|(_, i)| i.id.as_ref().ok_or("failed to get id as bytes").unwrap() == "bbb")
+            .map(|(_, i)| i)
             .ok_or("could not find keypair")?;
 
         log::info!("second_pair uuid: {}", second_pair.uuid);

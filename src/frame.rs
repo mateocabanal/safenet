@@ -2,7 +2,6 @@
 //! As of the time of writing, the Safenet spec defines two types of Frames,
 //! InitFrames and DataFrames.
 
-use std::fmt::Write;
 use std::{collections::HashMap, net::SocketAddr};
 use uuid::Uuid;
 
@@ -519,20 +518,19 @@ impl InitFrame {
 
         log::trace!("added uuid to clientkeypair: {}", &uuid);
 
-        let is_preexisting = APPSTATE
-            .read()
-            .expect("failed to get read lock")
-            .client_keys
-            .iter()
-            .position(|i| i.uuid == uuid);
-
-        if let Some(s) = is_preexisting {
-            APPSTATE
-                .write()
-                .expect("failed to get write lock")
-                .client_keys
-                .remove(s);
-        }
+        //        let is_preexisting = APPSTATE
+        //            .read()
+        //            .expect("failed to get read lock")
+        //            .client_keys
+        //            .get(&uuid);
+        //
+        //        if let Some(s) = is_preexisting {
+        //            APPSTATE
+        //                .write()
+        //                .expect("failed to get write lock")
+        //                .client_keys
+        //                .remove(uuid)
+        //        }
 
         let client_keypair = ClientKeypair::new()
             .id(std::str::from_utf8(id)
@@ -549,7 +547,7 @@ impl InitFrame {
             .expect("failed to get write lock")
             .client_keys;
 
-        client_keys.push(client_keypair);
+        client_keys.insert(client_keypair.uuid, client_keypair);
 
         let options_bytes: Vec<u8> = self.options.into();
         let options_size: u32 = options_bytes.len() as u32;
@@ -653,8 +651,7 @@ impl DataFrame {
         let app_state = APPSTATE.read()?;
         let target_keychain = app_state
             .client_keys
-            .iter()
-            .find(|i| i.uuid == target_uuid)
+            .get(&target_uuid)
             .ok_or("could not find client keys")?;
         let shared_secret_bytes = target_keychain
             .ecdh
@@ -695,9 +692,11 @@ impl DataFrame {
         let target_keychain = app_state
             .client_keys
             .iter()
-            .filter(|i| i.ip.is_some())
-            .find(|i| i.ip.unwrap() == target_peer)
+            .filter(|(_, i)| i.ip.is_some())
+            .find(|(_, i)| i.ip.unwrap() == target_peer)
+            .map(|(_, i)| i)
             .ok_or("could not find client keys")?;
+
         let shared_secret_bytes = target_keychain
             .ecdh
             .as_ref()
@@ -735,8 +734,7 @@ impl DataFrame {
         let app_state = APPSTATE.read()?;
         let target_keychain = app_state
             .client_keys
-            .iter()
-            .find(|i| i.uuid == target_uuid)
+            .get(&target_uuid)
             .ok_or("could not find client keys")?;
         let shared_secret_bytes = target_keychain
             .ecdh
