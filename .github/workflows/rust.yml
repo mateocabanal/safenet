@@ -11,10 +11,65 @@ env:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Build - ${{ matrix.platform.release_for }}
+    strategy:
+      matrix:
+        platform:
+          - release_for: Linux - x86_64
+            os: ubuntu-latest
+            bin: scurl
+            target: x86_64-unknown-linux-gnu
+            command: test
+
+          - release_for: Linux - arm64
+            os: ubuntu-latest
+            bin: scurl
+            target: aarch64-unknown-linux-gnu
+            command: test
+
+          - release_for: Linux - armhf
+            os: ubuntu-latest
+            bin: scurl
+            target: arm-unknown-linux-gnueabihf
+            command: test
+
+          - release_for: Linux - armv7hf
+            os: ubuntu-latest
+            bin: scurl
+            target: armv7-unknown-linux-gnueabihf
+            command: test
+
+          - release_for: Windows - x86_64
+            os: windows-latest
+            bin: scurl.exe
+            target: x86_64-pc-windows-msvc
+            command: test
+
+          - release_for: Windows - arm64
+            os: windows-latest
+            bin: scurl.exe
+            target: aarch64-pc-windows-msvc
+            command: test
+
+          - release_for: MacOS - x86_64
+            os: macOS-latest
+            bin: scurl
+            target: x86_64-apple-darwin
+            command: test
+
+          - release_for: MacOS - Apple Silicon
+            os: macOS-latest
+            bin: scurl
+            target: aarch64-apple-darwin
+            command: test
+            
+    runs-on: ${{ matrix.platform.os }}
     steps:
+    - uses: Swatinem/rust-cache@v2
     - uses: actions/checkout@v3
-    - name: Build
-      run: cargo build
-    - name: Run tests
-      run: cargo test -- --test-threads=1
+    - name: Unit Tests
+      with:
+          command: ${{ matrix.platform.command }}
+          target: ${{ matrix.platform.target }}
+          args: "--release"
+          strip: true
