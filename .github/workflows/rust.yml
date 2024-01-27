@@ -72,4 +72,4 @@ jobs:
       with:
           command: ${{ matrix.platform.command }}
           target: ${{ matrix.platform.target }}
-          args: "-- --test-threads=1"
+          args: "- --test-threads=1"
