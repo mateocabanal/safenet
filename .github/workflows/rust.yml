@@ -68,8 +68,7 @@ jobs:
     - uses: Swatinem/rust-cache@v2
     - uses: actions/checkout@v3
     - name: Unit Tests
+      uses: houseabsolute/actions-rust-cross@v0
       with:
           command: ${{ matrix.platform.command }}
           target: ${{ matrix.platform.target }}
-          args: "--release"
-          strip: true
