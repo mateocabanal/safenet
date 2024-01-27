@@ -10,6 +10,12 @@ pub use uuid;
 
 #[cfg(test)]
 mod tests {
+    use std::{
+        fs::File,
+        io::{Read, Write},
+        path::Path,
+    };
+
     use crate::crypto::key_exchange::{ECDHKeys, ECDHPubKey, ECDSAKeys, ECDSAPubKey, Signature};
     use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
     use simple_logger::SimpleLogger;
@@ -329,6 +335,36 @@ mod tests {
             init_frame_body_bytes[97..146],
             init_frame_body_bytes_2[97..146]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_ecdsa_keypair_to_and_from_bytes() -> Result<(), Box<dyn std::error::Error>> {
+        let ecdsa_bytes = APPSTATE
+            .read()
+            .unwrap()
+            .server_keys
+            .ecdsa
+            .to_bytes()
+            .unwrap();
+
+        println!("{}", ecdsa_bytes.len());
+        let ecdsa_keys = ECDSAKeys::from_raw_bytes(&ecdsa_bytes).unwrap();
+
+        if Path::new("./target/privkey.der").is_file() {
+            let mut handle = vec![];
+            File::open("./target/privkey.der")
+                .unwrap()
+                .read_to_end(&mut handle)
+                .unwrap();
+            let ecdsa_keys = ECDSAKeys::from_raw_bytes(&handle).unwrap();
+        } else {
+            File::create("./target/privkey.der")
+                .unwrap()
+                .write_all(&ecdsa_bytes)
+                .unwrap();
+        }
+
         Ok(())
     }
 }

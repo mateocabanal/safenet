@@ -1,5 +1,7 @@
 use ring::{
-    agreement, rand,
+    agreement,
+    pkcs8::Document,
+    rand,
     signature::{self, EcdsaKeyPair, KeyPair},
 };
 
@@ -46,25 +48,28 @@ impl ECDSAPubKey {
     }
 }
 
-#[derive(Debug)]
 pub struct ECDSAKeys {
     keypair: ring::signature::EcdsaKeyPair,
+    keypair_pkcs_bytes: Option<Document>,
 }
 
 impl ECDSAKeys {
     pub fn init() -> ECDSAKeys {
-        let keypair = EcdsaKeyPair::from_pkcs8(
+        let keypair_pkcs_bytes = EcdsaKeyPair::generate_pkcs8(
             &signature::ECDSA_P384_SHA384_ASN1_SIGNING,
-            EcdsaKeyPair::generate_pkcs8(
-                &signature::ECDSA_P384_SHA384_ASN1_SIGNING,
-                &rand::SystemRandom::new(),
-            )
-            .unwrap()
-            .as_ref(),
             &rand::SystemRandom::new(),
         )
         .unwrap();
-        ECDSAKeys { keypair }
+        let keypair = EcdsaKeyPair::from_pkcs8(
+            &signature::ECDSA_P384_SHA384_ASN1_SIGNING,
+            keypair_pkcs_bytes.as_ref(),
+            &rand::SystemRandom::new(),
+        )
+        .unwrap();
+        ECDSAKeys {
+            keypair,
+            keypair_pkcs_bytes: Some(keypair_pkcs_bytes),
+        }
     }
 
     pub fn sign(&self, msg: &[u8]) -> Signature {
@@ -84,6 +89,27 @@ impl ECDSAKeys {
             self.keypair.public_key().as_ref().to_vec(),
         );
         ECDSAPubKey { pub_key }
+    }
+
+    pub fn from_raw_bytes(bytes: &[u8]) -> Result<ECDSAKeys, Box<dyn std::error::Error>> {
+        if let Ok(keypair) = EcdsaKeyPair::from_pkcs8(
+            &signature::ECDSA_P384_SHA384_ASN1_SIGNING,
+            bytes,
+            &rand::SystemRandom::new(),
+        ) {
+            Ok(ECDSAKeys {
+                keypair,
+                keypair_pkcs_bytes: None,
+            })
+        } else {
+            Err("failed to create keypair!".into())
+        }
+    }
+
+    pub fn to_bytes(&self) -> Option<Vec<u8>> {
+        self.keypair_pkcs_bytes
+            .as_ref()
+            .map(|doc| doc.as_ref().to_vec())
     }
 }
 

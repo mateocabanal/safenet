@@ -10,7 +10,10 @@ use chacha20poly1305::aead::Aead;
 
 use crate::{
     app_state::ClientKeypair,
-    crypto::key_exchange::{ECDHKeys, ECDHPubKey, ECDSAPubKey, Signature},
+    crypto::{
+        key_exchange::{ECDHKeys, ECDHPubKey, ECDSAPubKey, Signature},
+        kyber::KyberCipher,
+    },
     APPSTATE,
 };
 
@@ -65,6 +68,8 @@ impl InitOptions {
         self
     }
 
+    /// Pretty self-explanitory, as of now there is only one encryption protocol in use.
+    /// Post-Quantum Encryption will be added in the future.
     pub fn encryption_type(mut self, enc_type: EncryptionType) -> InitOptions {
         self.encryption_type = Some(enc_type);
         self
@@ -76,6 +81,10 @@ impl InitOptions {
 
     pub fn get_nonce_secondary_key(&self) -> Option<bool> {
         self.nonce_secondary_key
+    }
+
+    pub fn get_status(&self) -> u8 {
+        self.status
     }
 }
 
@@ -95,6 +104,11 @@ impl Into<Vec<u8>> for InitOptions {
     }
 }
 
+/// Metadata carried in every frame.
+/// The metadata does not have a known size,
+/// so it can vary in size.
+/// Options are required to be sent in the frame.
+/// As of now, options are not encrypted. However, options are planned to be encrypted.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Options {
     frame_type: FrameType,
@@ -154,22 +168,26 @@ impl Into<Vec<u8>> for Options {
     }
 }
 
+// NOTE: What a mess...
+// This has to be cleaned up
 impl TryFrom<&[u8]> for Options {
     type Error = Box<dyn std::error::Error>;
     fn try_from(options_bytes: &[u8]) -> Result<Self, Self::Error> {
         let mut current_opt_index = 0usize;
         let mut options_map = HashMap::new();
 
-        log::trace!("options bytes {:?}", options_bytes);
+        log::trace!("options bytes: {:?}\x1b[38;2;108;190;237m", options_bytes);
 
-        log::trace!("\x1b[38;2;238;171;196mBEGIN OPTION PARSING LOOP!\x1b[1;0m\n");
+        log::trace!(
+            "\x1b[38;2;238;171;196mBEGIN OPTION PARSING LOOP!\x1b[1;0m\x1b[38;2;108;190;237m"
+        );
         while let Some(option_slice) = options_bytes[current_opt_index..]
             .iter()
             .enumerate()
             .find(|(_, ascii_code)| **ascii_code == 174)
             .map(|(index, _)| &options_bytes[current_opt_index..current_opt_index + index])
         {
-            log::trace!("\x1b[38;2;108;190;237m");
+            //            log::trace!("\x1b[38;2;108;190;237m");
             #[cfg(test)]
             println!(
                 "length of option, current_opt_index: {:?}, {}",
@@ -193,8 +211,7 @@ impl TryFrom<&[u8]> for Options {
 
             current_opt_index += option_slice.len() + 1;
         }
-        log::trace!("\x1b[1;0m");
-        log::trace!("\x1b[38;2;238;171;196mEND OF OPTION PARSING LOOP!\x1b[1;0m\n");
+        log::trace!("\x1b[1;0m\x1b[38;2;238;171;196mEND OF OPTION PARSING LOOP!\x1b[1;0m\n");
 
         let frame_type = match options_map
             .get("frame_type")
@@ -518,20 +535,6 @@ impl InitFrame {
 
         log::trace!("added uuid to clientkeypair: {}", &uuid);
 
-        //        let is_preexisting = APPSTATE
-        //            .read()
-        //            .expect("failed to get read lock")
-        //            .client_keys
-        //            .get(&uuid);
-        //
-        //        if let Some(s) = is_preexisting {
-        //            APPSTATE
-        //                .write()
-        //                .expect("failed to get write lock")
-        //                .client_keys
-        //                .remove(uuid)
-        //        }
-
         let client_keypair = ClientKeypair::new()
             .id(std::str::from_utf8(id)
                 .expect("failed to parse id")
@@ -575,6 +578,89 @@ impl InitFrame {
                 &self.ecdh_signature.to_bytes(),
             ]
             .concat())
+        }
+    }
+
+    pub fn new(enc_type: EncryptionType) -> InitFrame {
+        let appstate_r = APPSTATE
+            .read()
+            .expect("could not get read handle on appstate");
+        let id = appstate_r.user_id;
+        let uuid = appstate_r.uuid.into_bytes();
+
+        let mut options = Options::default();
+        options.frame_type = FrameType::Init;
+        options.init_opts = Some(
+            InitOptions::new_with_enc_type(enc_type)
+                .status(0)
+                .nonce_secondary_key(true),
+        );
+        let ecdsa_pub_key = appstate_r.server_keys.ecdsa.get_pub_key().clone();
+        let ecdh_keys = Some(ECDHKeys::init());
+        let ecdh_pub_key = ecdh_keys.as_ref().unwrap().get_pub_key();
+
+        let ecdh_nonce_keys = Some(ECDHKeys::init());
+        let ecdh_pub_nonce_key = Some(ecdh_nonce_keys.as_ref().unwrap().get_pub_key());
+
+        let ecdh_signature = appstate_r
+            .server_keys
+            .ecdsa
+            .sign(&ecdh_keys.as_ref().unwrap().get_pub_key_to_bytes());
+
+        InitFrame {
+            id,
+            uuid,
+            options,
+            ecdsa_pub_key,
+            ecdh_pub_key,
+            ecdh_keys,
+            ecdh_signature,
+            ecdh_nonce_keys,
+            ecdh_pub_nonce_key,
+        }
+    }
+
+    pub fn handler<T: AsRef<[u8]>>(trait_bytes: T) -> Result<Vec<u8>, Box<dyn std::error::Error>> {
+        let bytes = trait_bytes.as_ref();
+        let opts_len = u32::from_be_bytes(bytes[19..23].try_into().unwrap());
+        let opts = Options::try_from(&bytes[23usize..23usize + opts_len as usize])?;
+        let init_opts = opts.get_init_opts().unwrap();
+
+        match init_opts.get_encryption_type().unwrap() {
+            EncryptionType::Legacy => InitFrame::default().from_peer(bytes),
+            EncryptionType::Kyber => {
+                let status = init_opts.get_status();
+
+                match status {
+                    0 => Err("received an uninit'd kyber frame".into()),
+                    1 => {
+                        let mut kyber = KyberCipher::init();
+                        kyber.client_init(bytes[23usize + opts_len as usize..].try_into().unwrap());
+
+                        let pub_key = kyber.keys.public;
+                        let options = Options {
+                            frame_type: FrameType::Init,
+                            init_opts: Some(
+                                InitOptions::new_with_enc_type(EncryptionType::Kyber)
+                                    .status(1)
+                                    .nonce_secondary_key(true),
+                            ),
+                            ..Default::default()
+                        };
+
+                        let opts_bytes: Vec<u8> = options.into();
+                        Ok([
+                            [0, 0, 0].as_slice(),
+                            APPSTATE.read()?.uuid.as_bytes(),
+                            &(opts_bytes.len() as u32).to_be_bytes(),
+                            &opts_bytes,
+                            &pub_key,
+                        ]
+                        .concat())
+                    }
+                    _ => unimplemented!(),
+                }
+            }
         }
     }
 

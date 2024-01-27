@@ -5,6 +5,7 @@ use p384::{
         SigningKey, VerifyingKey,
     },
     elliptic_curve::sec1::ToEncodedPoint,
+    pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePublicKey},
     EncodedPoint, PublicKey,
 };
 
@@ -44,7 +45,7 @@ impl ECDSAPubKey {
     }
 
     pub fn to_bytes(&self) -> Vec<u8> {
-        self.pub_key.to_encoded_point(false).to_bytes().to_vec()
+        self.pub_key.to_encoded_point(false).as_ref().to_vec()
     }
 
     pub fn verify(&self, msg: &[u8], sig: &Signature) -> Result<(), Box<dyn std::error::Error>> {
@@ -94,7 +95,7 @@ impl ECDHPubKey {
     }
 
     pub fn get_pub_key_to_bytes(&self) -> Vec<u8> {
-        self.pub_key.to_encoded_point(false).to_bytes().to_vec()
+        self.pub_key.to_sec1_bytes().to_vec()
     }
 }
 
@@ -120,6 +121,20 @@ impl ECDSAKeys {
 
     pub fn get_pub_key(&self) -> ECDSAPubKey {
         self.pub_key.clone()
+    }
+
+    pub fn to_bytes(&self) -> Option<Vec<u8>> {
+        let priv_bytes = self.priv_key.to_pkcs8_der().unwrap().as_bytes().to_vec();
+        Some(priv_bytes)
+    }
+
+    pub fn from_raw_bytes(bytes: &[u8]) -> Result<ECDSAKeys, Box<dyn std::error::Error>> {
+        let priv_key = SigningKey::from_pkcs8_der(bytes)?;
+        let pub_key = ECDSAPubKey {
+            pub_key: priv_key.verifying_key().to_owned(),
+        };
+
+        Ok(ECDSAKeys { pub_key, priv_key })
     }
 }
 
