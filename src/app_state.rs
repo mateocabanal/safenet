@@ -2,7 +2,6 @@ use crate::crypto::{
     aes::ChaChaCipher,
     key_exchange::{ECDHKeys, ECDSAKeys, ECDSAPubKey, SharedSecret},
 };
-use once_cell::sync::Lazy;
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -20,8 +19,12 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn init() {
-        APPSTATE.set(RwLock::new(AppState::init_keys()));
+    pub fn init() -> Result<(), Box<dyn std::error::Error>> {
+        if let Ok(()) = APPSTATE.set(RwLock::new(AppState::init_keys())) {
+            Ok(())
+        } else {
+            Err("failed to init, likely because AppState has been previously initialized".into())
+        }
     }
 
     pub(crate) fn init_keys() -> AppState {
@@ -40,16 +43,18 @@ impl AppState {
     pub fn init_with_priv_key(bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
         let server_keys = ServerKeys::init_with_priv_key(bytes)?;
         let client_keys = HashMap::new();
-        APPSTATE.set(RwLock::new(AppState {
+        if let Ok(()) = APPSTATE.set(RwLock::new(AppState {
             server_keys,
             client_keys,
             server_addr: None,
             is_http_server_on: false,
             uuid: Uuid::new_v4(),
             user_id: [0u8; 3],
-        }));
-
-        Ok(())
+        })) {
+            Ok(())
+        } else {
+            Err("failed to initialize with private key".into())
+        }
     }
 
     pub fn priv_key_to_bytes(&self) -> Vec<u8> {
@@ -77,6 +82,12 @@ impl std::fmt::Debug for ClientKeypair {
             self.ecdh.as_ref().unwrap().raw_secret_bytes(),
             self.uuid
         )
+    }
+}
+
+impl Default for ClientKeypair {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
