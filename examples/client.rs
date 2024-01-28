@@ -2,6 +2,7 @@ use clap::Parser;
 use dialoguer::Input;
 use minreq::Request;
 use safenet::{
+    app_state::AppState,
     frame::{DataFrame, Frame, InitFrame},
     APPSTATE,
 };
@@ -20,12 +21,13 @@ struct Args {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    AppState::init();
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Info)
         .env()
         .init()?;
     let args = Args::parse();
-    APPSTATE.write()?.user_id = args.id.as_bytes().try_into()?;
+    APPSTATE.get().unwrap().write()?.user_id = args.id.as_bytes().try_into()?;
     let peer = args.peer.parse()?;
 
     let init_frame = InitFrame::default();

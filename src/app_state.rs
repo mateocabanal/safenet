@@ -3,7 +3,11 @@ use crate::crypto::{
     key_exchange::{ECDHKeys, ECDSAKeys, ECDSAPubKey, SharedSecret},
 };
 use once_cell::sync::Lazy;
-use std::{collections::HashMap, net::SocketAddr, sync::RwLock};
+use std::{
+    collections::HashMap,
+    net::SocketAddr,
+    sync::{OnceLock, RwLock},
+};
 use uuid::Uuid;
 
 pub struct AppState {
@@ -16,7 +20,11 @@ pub struct AppState {
 }
 
 impl AppState {
-    pub fn init() -> AppState {
+    pub fn init() {
+        APPSTATE.set(RwLock::new(AppState::init_keys()));
+    }
+
+    pub(crate) fn init_keys() -> AppState {
         let server_keys = ServerKeys::init();
         let client_keys = HashMap::new();
         AppState {
@@ -27,6 +35,25 @@ impl AppState {
             uuid: Uuid::new_v4(),
             user_id: [0u8; 3],
         }
+    }
+
+    pub fn init_with_priv_key(bytes: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
+        let server_keys = ServerKeys::init_with_priv_key(bytes)?;
+        let client_keys = HashMap::new();
+        APPSTATE.set(RwLock::new(AppState {
+            server_keys,
+            client_keys,
+            server_addr: None,
+            is_http_server_on: false,
+            uuid: Uuid::new_v4(),
+            user_id: [0u8; 3],
+        }));
+
+        Ok(())
+    }
+
+    pub fn priv_key_to_bytes(&self) -> Vec<u8> {
+        self.server_keys.ecdsa.to_bytes().unwrap()
     }
 }
 
@@ -109,6 +136,13 @@ impl ServerKeys {
         let ecdh = ECDHKeys::init();
         ServerKeys { ecdsa, ecdh }
     }
+
+    fn init_with_priv_key(bytes: &[u8]) -> Result<ServerKeys, Box<dyn std::error::Error>> {
+        let ecdsa = ECDSAKeys::from_raw_bytes(bytes)?;
+        let ecdh = ECDHKeys::init();
+
+        Ok(ServerKeys { ecdsa, ecdh })
+    }
 }
 
-pub static APPSTATE: Lazy<RwLock<AppState>> = Lazy::new(|| RwLock::new(AppState::init()));
+pub static APPSTATE: OnceLock<RwLock<AppState>> = OnceLock::new();

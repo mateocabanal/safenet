@@ -16,7 +16,10 @@ mod tests {
         path::Path,
     };
 
-    use crate::crypto::key_exchange::{ECDHKeys, ECDHPubKey, ECDSAKeys, ECDSAPubKey, Signature};
+    use crate::{
+        app_state::AppState,
+        crypto::key_exchange::{ECDHKeys, ECDHPubKey, ECDSAKeys, ECDSAPubKey, Signature},
+    };
     use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
     use simple_logger::SimpleLogger;
 
@@ -32,7 +35,9 @@ mod tests {
     #[get("/keys/pub")]
     fn keys_pub() -> Vec<u8> {
         APPSTATE
-            .try_read()
+            .get()
+            .unwrap()
+            .read()
             .unwrap()
             .server_keys
             .ecdsa
@@ -96,14 +101,23 @@ mod tests {
     }
 
     fn start_http_server() {
-        APPSTATE.write().expect("failed to get write lock").user_id =
-            "teo".as_bytes().try_into().unwrap();
+        APPSTATE
+            .get()
+            .unwrap()
+            .write()
+            .expect("failed to get write lock")
+            .user_id = "teo".as_bytes().try_into().unwrap();
         let socket = std::net::TcpListener::bind("127.0.0.1:3876");
         if let Ok(s) = socket {
             let conf =
                 Config::new().routes(Routes::new(vec![conn_init(), server_msg(), keys_pub()]));
             std::thread::spawn(|| HttpListener::new(s, conf).start());
-            APPSTATE.try_write().unwrap().is_http_server_on = true;
+            APPSTATE
+                .get()
+                .unwrap()
+                .try_write()
+                .unwrap()
+                .is_http_server_on = true;
         } else {
             log::warn!("could not bind to port 3876, http server could be on already");
         }
@@ -124,6 +138,8 @@ mod tests {
 
     #[test]
     fn test_ecdsa() {
+        AppState::init();
+
         let keys = ECDSAKeys::init();
         let msg = b"Hi ECDSA!";
         let sig: Signature = keys.sign(msg);
@@ -132,6 +148,7 @@ mod tests {
 
     #[test]
     fn test_ecdh() {
+        AppState::init();
         let alice_keys = ECDHKeys::init();
         let bob_keys = ECDHKeys::init();
         let alice_pub_key = alice_keys.get_pub_key();
@@ -148,6 +165,7 @@ mod tests {
 
     #[test]
     fn test_auth_ecdh() {
+        AppState::init();
         use chacha20poly1305::aead::Aead;
 
         let alice_ecdsa = ECDSAKeys::init();
@@ -224,14 +242,15 @@ mod tests {
 
     #[test]
     fn test_appstate() {
-        let app_state_keys = &APPSTATE.read().unwrap().server_keys;
+        AppState::init();
+        let app_state_keys = &APPSTATE.get().unwrap().read().unwrap().server_keys;
         println!("App state: pub: {:#?}", app_state_keys.ecdsa.get_pub_key(),);
     }
 
     #[test]
     fn test_network_server_pub_key() {
         start_http_server();
-        while !APPSTATE.read().unwrap().is_http_server_on {}
+        while !APPSTATE.get().unwrap().read().unwrap().is_http_server_on {}
         let serv_pub_key_as_bytes = minreq::get("http://127.0.0.1:3876/keys/pub")
             .send()
             .unwrap();
@@ -239,7 +258,14 @@ mod tests {
 
         #[cfg(not(feature = "ring"))]
         assert_eq!(
-            APPSTATE.read().unwrap().server_keys.ecdsa.get_pub_key(),
+            APPSTATE
+                .get()
+                .unwrap()
+                .read()
+                .unwrap()
+                .server_keys
+                .ecdsa
+                .get_pub_key(),
             serv_pub_key
         );
     }
@@ -247,8 +273,8 @@ mod tests {
     #[test]
     fn test_uuid() -> Result<(), Box<dyn std::error::Error>> {
         start_http_server();
-        while !APPSTATE.read()?.is_http_server_on {}
-        let uuid = APPSTATE.read()?.uuid;
+        while !APPSTATE.get().unwrap().read()?.is_http_server_on {}
+        let uuid = APPSTATE.get().unwrap().read()?.uuid;
         let client_init_frame = InitFrame::default();
         let server_init_res = minreq::post("http://127.0.0.1:3876/conn/init")
             .with_body(client_init_frame.to_bytes())
@@ -272,13 +298,13 @@ mod tests {
         let bbb_keys = generate_keypair(String::from("bbb"));
 
         // NOTE: WRITE HELD!
-        let mut appstate_rw = APPSTATE.write()?;
+        let mut appstate_rw = APPSTATE.get().unwrap().write()?;
         appstate_rw.client_keys.insert(aaa_keys.uuid, aaa_keys);
         appstate_rw.client_keys.insert(bbb_keys.uuid, bbb_keys);
         drop(appstate_rw);
         // NOTE: WRITE DROPPED!
 
-        let app_state = APPSTATE.read()?;
+        let app_state = APPSTATE.get().unwrap().read()?;
 
         let first_pair = app_state
             .client_keys
@@ -340,13 +366,7 @@ mod tests {
 
     #[test]
     fn test_ecdsa_keypair_to_and_from_bytes() -> Result<(), Box<dyn std::error::Error>> {
-        let ecdsa_bytes = APPSTATE
-            .read()
-            .unwrap()
-            .server_keys
-            .ecdsa
-            .to_bytes()
-            .unwrap();
+        let ecdsa_bytes = APPSTATE.get().unwrap().read().unwrap().priv_key_to_bytes();
 
         println!("{}", ecdsa_bytes.len());
         let ecdsa_keys = ECDSAKeys::from_raw_bytes(&ecdsa_bytes).unwrap();
@@ -357,7 +377,10 @@ mod tests {
                 .unwrap()
                 .read_to_end(&mut handle)
                 .unwrap();
+
             let ecdsa_keys = ECDSAKeys::from_raw_bytes(&handle).unwrap();
+            AppState::init_with_priv_key(&handle).unwrap();
+            println!("public key: {:?}", ecdsa_keys.get_pub_key())
         } else {
             File::create("./target/privkey.der")
                 .unwrap()

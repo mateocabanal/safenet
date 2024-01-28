@@ -122,6 +122,8 @@ impl Default for Options {
         Options {
             frame_type: FrameType::Data,
             ip_addr: APPSTATE
+                .get()
+                .unwrap()
                 .read()
                 .expect("could not acquire read handle on appstate")
                 .server_addr,
@@ -427,6 +429,8 @@ impl Default for InitFrame {
     /// Generates a InitFrame ready to be sent to another client.
     fn default() -> InitFrame {
         let appstate_r = APPSTATE
+            .get()
+            .unwrap()
             .read()
             .expect("could not get read handle on appstate");
         let id = appstate_r.user_id;
@@ -546,6 +550,8 @@ impl InitFrame {
             .uuid(uuid);
 
         let client_keys = &mut APPSTATE
+            .get()
+            .unwrap()
             .try_write()
             .expect("failed to get write lock")
             .client_keys;
@@ -583,6 +589,8 @@ impl InitFrame {
 
     pub fn new(enc_type: EncryptionType) -> InitFrame {
         let appstate_r = APPSTATE
+            .get()
+            .unwrap()
             .read()
             .expect("could not get read handle on appstate");
         let id = appstate_r.user_id;
@@ -651,7 +659,7 @@ impl InitFrame {
                         let opts_bytes: Vec<u8> = options.into();
                         Ok([
                             [0, 0, 0].as_slice(),
-                            APPSTATE.read()?.uuid.as_bytes(),
+                            APPSTATE.get().unwrap().read()?.uuid.as_bytes(),
                             &(opts_bytes.len() as u32).to_be_bytes(),
                             &opts_bytes,
                             &pub_key,
@@ -718,8 +726,16 @@ impl Frame for DataFrame {
 
 impl DataFrame {
     pub fn new<'a, T: Into<&'a [u8]>>(input: T) -> Self {
-        let id = Some(APPSTATE.try_read().unwrap().user_id);
-        let uuid = Some(APPSTATE.try_read().unwrap().uuid.into_bytes());
+        let id = Some(APPSTATE.get().unwrap().try_read().unwrap().user_id);
+        let uuid = Some(
+            APPSTATE
+                .get()
+                .unwrap()
+                .try_read()
+                .unwrap()
+                .uuid
+                .into_bytes(),
+        );
         let slice = input.into();
         let body = slice.into();
         DataFrame {
@@ -734,7 +750,7 @@ impl DataFrame {
         &mut self,
         target_uuid: uuid::Uuid,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let app_state = APPSTATE.read()?;
+        let app_state = APPSTATE.get().unwrap().read()?;
         let target_keychain = app_state
             .client_keys
             .get(&target_uuid)
@@ -773,7 +789,7 @@ impl DataFrame {
         &mut self,
         target_peer: SocketAddr,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let app_state = APPSTATE.read()?;
+        let app_state = APPSTATE.get().unwrap().read()?;
         log::debug!("keychain: {:#?}", app_state.client_keys);
         let target_keychain = app_state
             .client_keys
@@ -817,7 +833,7 @@ impl DataFrame {
         let target_uuid = Uuid::from_bytes(self.uuid.ok_or("self.uuid is invalid")?);
         log::trace!("target_uuid: {target_uuid}");
 
-        let app_state = APPSTATE.read()?;
+        let app_state = APPSTATE.get().unwrap().read()?;
         let target_keychain = app_state
             .client_keys
             .get(&target_uuid)

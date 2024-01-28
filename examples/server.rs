@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use clap::Parser;
 use local_ip_address::local_ip;
+use safenet::app_state::AppState;
 use safenet::frame::{FrameType, Options};
 use safenet::{
     frame::{DataFrame, Frame, InitFrame},
@@ -83,16 +84,19 @@ struct Args {
 
 #[allow(unreachable_code)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    AppState::init();
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Info)
         .env()
         .init()?;
     let args = Args::parse();
-    APPSTATE.write()?.user_id = args.id.as_bytes().try_into()?;
+    APPSTATE.get().unwrap().write()?.user_id = args.id.as_bytes().try_into()?;
     let local_ip = local_ip()?;
     let port = args.port;
     let sock = TcpListener::bind(format!("0.0.0.0:{port}")).expect("could not bind on port 1800");
     APPSTATE
+        .get()
+        .unwrap()
         .write()
         .expect("failed to get write lock")
         .server_addr = Some(SocketAddr::new(
