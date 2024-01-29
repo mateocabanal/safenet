@@ -11,6 +11,7 @@ pub use uuid;
 #[cfg(test)]
 mod tests {
     use std::{
+        collections::HashMap,
         fs::File,
         io::{Read, Write},
         path::Path,
@@ -18,7 +19,11 @@ mod tests {
 
     use crate::{
         app_state::AppState,
-        crypto::key_exchange::{ECDHKeys, ECDHPubKey, ECDSAKeys, ECDSAPubKey, Signature},
+        crypto::{
+            key_exchange::{ECDHKeys, ECDHPubKey, ECDSAKeys, ECDSAPubKey, Signature},
+            kyber::KyberCipher,
+        },
+        frame::InitOptions,
     };
     use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
     use simple_logger::SimpleLogger;
@@ -101,9 +106,10 @@ mod tests {
     }
 
     fn start_http_server() {
+        AppState::init();
         APPSTATE
             .get()
-            .unwrap()
+            .expect("failed to get appstate")
             .write()
             .expect("failed to get write lock")
             .user_id = "teo".as_bytes().try_into().unwrap();
@@ -279,9 +285,6 @@ mod tests {
         let server_init_res = minreq::post("http://127.0.0.1:3876/conn/init")
             .with_body(client_init_frame.to_bytes())
             .send()?;
-        //        client_init_frame
-        //            .from_peer(server_init_res.as_bytes())
-        //            .unwrap();
 
         assert_eq!(
             uuid,
@@ -379,7 +382,6 @@ mod tests {
                 .unwrap();
 
             let ecdsa_keys = ECDSAKeys::from_raw_bytes(&handle).unwrap();
-            AppState::init_with_priv_key(&handle).unwrap();
             println!("public key: {:?}", ecdsa_keys.get_pub_key())
         } else {
             File::create("./target/privkey.der")
@@ -387,6 +389,84 @@ mod tests {
                 .write_all(&ecdsa_bytes)
                 .unwrap();
         }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_kyber_handler() -> Result<(), Box<dyn std::error::Error>> {
+        setup_logger();
+        start_http_server();
+        let mut client_cipher = KyberCipher::init();
+        let uuid = Uuid::new_v4();
+        let opts = Options {
+            frame_type: frame::FrameType::Init,
+            init_opts: Some(InitOptions::new_with_enc_type(frame::EncryptionType::Kyber).status(0)),
+            ip_addr: None,
+            map: HashMap::new(),
+        };
+        let opts_bytes: Vec<u8> = opts.into();
+        let frame = [
+            [0, 0, 0].as_slice(),
+            uuid.as_bytes(),
+            &(opts_bytes.len() as u32).to_be_bytes(),
+            &opts_bytes,
+            client_cipher.keys.public.as_slice(),
+        ]
+        .concat();
+
+        let server_pubkey = InitFrame::handler(frame).unwrap();
+        let server_pubkey_opts_len = u32::from_be_bytes(server_pubkey[19..23].try_into()?);
+
+        let client_init = client_cipher.client_init(
+            server_pubkey[23 + server_pubkey_opts_len as usize..]
+                .try_into()
+                .expect("failed in test"),
+        );
+
+        let opts = Options {
+            frame_type: frame::FrameType::Init,
+            init_opts: Some(InitOptions::new_with_enc_type(frame::EncryptionType::Kyber).status(1)),
+            ip_addr: None,
+            map: HashMap::new(),
+        };
+        let opts_bytes: Vec<u8> = opts.clone().into();
+
+        let frame = [
+            [0, 0, 0].as_slice(),
+            uuid.as_bytes(),
+            &(opts_bytes.len() as u32).to_be_bytes(),
+            &opts_bytes,
+            &client_cipher.keys.public,
+            &client_init,
+        ]
+        .concat();
+
+        let server_res = InitFrame::handler(frame).unwrap();
+        let server_res_opts_len = u32::from_be_bytes(server_pubkey[19..23].try_into()?);
+        println!(
+            "len of body: {}",
+            &server_res[23 + server_res_opts_len as usize..].len()
+        );
+
+        client_cipher.client_confirm(
+            server_res[23 + server_res_opts_len as usize..]
+                .try_into()
+                .unwrap(),
+        );
+
+        assert_eq!(
+            client_cipher.cipher.shared_secret,
+            APPSTATE
+                .get()
+                .unwrap()
+                .read()?
+                .ongoing_kyber_conns
+                .get(&uuid)
+                .unwrap()
+                .cipher
+                .shared_secret
+        );
 
         Ok(())
     }

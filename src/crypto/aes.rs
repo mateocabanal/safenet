@@ -28,4 +28,14 @@ impl ChaChaCipher {
 
         ChaChaCipher { cipher: cha_cipher }
     }
+
+    pub fn init_with_raw_bytes(bytes: &[u8]) -> ChaChaCipher {
+        let mut hasher = Blake2b256::new();
+
+        hasher.update(bytes);
+        let hasher_bytes = hasher.finalize();
+        let cipher = XChaCha20Poly1305::new(&hasher_bytes);
+
+        ChaChaCipher { cipher }
+    }
 }

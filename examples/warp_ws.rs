@@ -1,11 +1,16 @@
 // #![deny(warnings)]
 use std::collections::HashMap;
+use std::fs::File;
+use std::io::{Read, Write};
+use std::path::Path;
 use std::sync::{
     atomic::{AtomicUsize, Ordering},
     Arc,
 };
 
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
+use safenet::APPSTATE;
+use safenet::app_state::AppState;
 use safenet::frame::{DataFrame, Frame, FrameType, InitFrame, Options};
 use tokio::sync::{mpsc, RwLock};
 use tokio_stream::wrappers::UnboundedReceiverStream;
@@ -26,10 +31,23 @@ type Users = Arc<RwLock<HashMap<Uuid, mpsc::UnboundedSender<Message>>>>;
 async fn main() {
     // Keep track of all connected users, key is usize, value
     // is a websocket sender.
-
     use warp::http::header::{HeaderMap, HeaderValue};
     
     simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Info).env().init().unwrap();
+
+    if Path::new("./privkey.der").exists() {
+        let mut priv_bytes = vec![];
+        let mut priv_file = File::open("./privkey.der").unwrap();
+        priv_file.read_to_end(&mut priv_bytes).unwrap();
+        AppState::init_with_priv_key(&priv_bytes).unwrap();
+    } else {
+        log::info!("creating ECDSA keys");
+        AppState::init().unwrap();
+        let mut priv_file = File::create("./privkey.der").unwrap();
+        priv_file.write_all(&APPSTATE.get().unwrap().read().unwrap().priv_key_to_bytes()).unwrap();
+    }
+
+    log::debug!("ECDSA key: {:?}", APPSTATE.get().unwrap().read().unwrap().server_keys.ecdsa.get_pub_key());
 
     let users = Users::default();
     // Turn our "state" into a new Filter...

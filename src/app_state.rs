@@ -1,6 +1,7 @@
 use crate::crypto::{
     aes::ChaChaCipher,
     key_exchange::{ECDHKeys, ECDSAKeys, ECDSAPubKey, SharedSecret},
+    kyber::KyberCipher,
 };
 use std::{
     collections::HashMap,
@@ -14,6 +15,7 @@ pub struct AppState {
     pub client_keys: HashMap<Uuid, ClientKeypair>,
     pub is_http_server_on: bool,
     pub server_addr: Option<SocketAddr>,
+    pub(crate) ongoing_kyber_conns: HashMap<Uuid, KyberCipher>,
     pub user_id: [u8; 3],
     pub uuid: Uuid,
 }
@@ -34,6 +36,7 @@ impl AppState {
             server_keys,
             client_keys,
             server_addr: None,
+            ongoing_kyber_conns: HashMap::new(),
             is_http_server_on: false,
             uuid: Uuid::new_v4(),
             user_id: [0u8; 3],
@@ -47,6 +50,7 @@ impl AppState {
             server_keys,
             client_keys,
             server_addr: None,
+            ongoing_kyber_conns: HashMap::new(),
             is_http_server_on: false,
             uuid: Uuid::new_v4(),
             user_id: [0u8; 3],

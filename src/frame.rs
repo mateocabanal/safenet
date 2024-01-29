@@ -111,10 +111,10 @@ impl Into<Vec<u8>> for InitOptions {
 /// As of now, options are not encrypted. However, options are planned to be encrypted.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Options {
-    frame_type: FrameType,
-    ip_addr: Option<SocketAddr>,
-    init_opts: Option<InitOptions>,
-    map: HashMap<String, String>,
+    pub(crate) frame_type: FrameType,
+    pub(crate) ip_addr: Option<SocketAddr>,
+    pub(crate) init_opts: Option<InitOptions>,
+    pub(crate) map: HashMap<String, String>,
 }
 
 impl Default for Options {
@@ -236,6 +236,8 @@ impl TryFrom<&[u8]> for Options {
                 2u8..=u8::MAX => return Err("enc_type out of bounds".into()),
             };
 
+            let status = options_map.get("status");
+
             // If not defined, it is off
             let nonce_secondary_key = options_map
                 .get("nonce_secondary_key")
@@ -243,7 +245,7 @@ impl TryFrom<&[u8]> for Options {
                 .parse::<u8>()?;
             Some(
                 InitOptions::new_with_enc_type(enc_type)
-                    .status(0)
+                    .status(status.unwrap_or(&String::from("0")).parse::<u8>()?)
                     .nonce_secondary_key(nonce_secondary_key == 1),
             )
         } else {
@@ -640,12 +642,39 @@ impl InitFrame {
                 let status = init_opts.get_status();
 
                 match status {
-                    0 => Err("received an uninit'd kyber frame".into()),
-                    1 => {
-                        let mut kyber = KyberCipher::init();
-                        kyber.client_init(bytes[23usize + opts_len as usize..].try_into().unwrap());
+                    0 => {
+                        let kyber = KyberCipher::init();
 
                         let pub_key = kyber.keys.public;
+                        let options = Options {
+                            frame_type: FrameType::Init,
+                            init_opts: Some(
+                                InitOptions::new_with_enc_type(EncryptionType::Kyber)
+                                    .status(0)
+                                    .nonce_secondary_key(true),
+                            ),
+                            ..Default::default()
+                        };
+
+                        let opts_bytes: Vec<u8> = options.into();
+                        APPSTATE
+                            .get()
+                            .unwrap()
+                            .write()
+                            .unwrap()
+                            .ongoing_kyber_conns
+                            .insert(Uuid::from_slice(&bytes[3..19])?, kyber);
+
+                        Ok([
+                            [0, 0, 0].as_slice(),
+                            APPSTATE.get().unwrap().read()?.uuid.as_bytes(),
+                            &(opts_bytes.len() as u32).to_be_bytes(),
+                            &opts_bytes,
+                            &pub_key,
+                        ]
+                        .concat())
+                    }
+                    1 => {
                         let options = Options {
                             frame_type: FrameType::Init,
                             init_opts: Some(
@@ -655,14 +684,40 @@ impl InitFrame {
                             ),
                             ..Default::default()
                         };
-
                         let opts_bytes: Vec<u8> = options.into();
+                        let mut appstate_rw =
+                            APPSTATE.get().ok_or("could not get appstate")?.write()?;
+
+                        let kyber = appstate_rw
+                            .ongoing_kyber_conns
+                            .get_mut(&Uuid::from_slice(&bytes[3..19])?)
+                            .ok_or("could not find kyber state")?;
+
+                        log::debug!(
+                            "server: client_init size {}",
+                            bytes[(1568 + 23 + opts_len) as usize..].len()
+                        );
+
+                        let server_recv = kyber
+                            .cipher
+                            .server_receive(
+                                bytes[(1568 + 23 + opts_len) as usize..]
+                                    .try_into()
+                                    .expect("could not slice in"),
+                                bytes[23 + opts_len as usize..1568 + 23 + opts_len as usize]
+                                    .try_into()
+                                    .expect("could not slice in"),
+                                &kyber.keys.secret,
+                                &mut rand::thread_rng(),
+                            )
+                            .unwrap();
+
                         Ok([
                             [0, 0, 0].as_slice(),
-                            APPSTATE.get().unwrap().read()?.uuid.as_bytes(),
+                            appstate_rw.uuid.as_bytes(),
                             &(opts_bytes.len() as u32).to_be_bytes(),
                             &opts_bytes,
-                            &pub_key,
+                            &server_recv,
                         ]
                         .concat())
                     }
