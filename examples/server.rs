@@ -6,9 +6,9 @@ use std::time::Duration;
 use clap::Parser;
 use local_ip_address::local_ip;
 use safenet::app_state::AppState;
-use safenet::frame::{FrameType, Options};
+use safenet::frame::{FrameType, InitFrame, Options};
 use safenet::{
-    frame::{DataFrame, Frame, InitFrame},
+    frame::{DataFrame, Frame},
     uuid::Uuid,
     APPSTATE,
 };
@@ -40,7 +40,7 @@ fn conn_init(req: Request) -> Response {
 
 #[post("/echo")]
 fn server_msg(req: Request) -> Response {
-    let req_bytes = req.get_raw_body().clone();
+    let req_bytes = req.get_raw_body();
     let data_frame = DataFrame::from_bytes(req_bytes);
     if data_frame.is_err() {
         log::trace!("failed to parse data frame");

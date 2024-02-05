@@ -15,7 +15,6 @@ pub struct AppState {
     pub client_keys: HashMap<Uuid, ClientKeypair>,
     pub is_http_server_on: bool,
     pub server_addr: Option<SocketAddr>,
-    pub(crate) ongoing_kyber_conns: HashMap<Uuid, KyberCipher>,
     pub user_id: [u8; 3],
     pub uuid: Uuid,
 }
@@ -36,7 +35,6 @@ impl AppState {
             server_keys,
             client_keys,
             server_addr: None,
-            ongoing_kyber_conns: HashMap::new(),
             is_http_server_on: false,
             uuid: Uuid::new_v4(),
             user_id: [0u8; 3],
@@ -50,7 +48,6 @@ impl AppState {
             server_keys,
             client_keys,
             server_addr: None,
-            ongoing_kyber_conns: HashMap::new(),
             is_http_server_on: false,
             uuid: Uuid::new_v4(),
             user_id: [0u8; 3],
@@ -70,10 +67,11 @@ pub struct ClientKeypair {
     pub id: Option<String>,
     pub ecdsa: Option<ECDSAPubKey>,
     pub ecdh: Option<SharedSecret>,
+    pub kyber: Option<[u8; 32]>,
     pub chacha: Option<ChaChaCipher>,
     pub uuid: Uuid,
     pub ip: Option<SocketAddr>,
-    pub ecdh_secondary: Option<SharedSecret>,
+    pub nonce_key: Option<Vec<u8>>,
 }
 
 impl std::fmt::Debug for ClientKeypair {
@@ -101,10 +99,11 @@ impl ClientKeypair {
             id: None,
             ecdsa: None,
             ecdh: None,
+            kyber: None,
             chacha: None,
             uuid: Uuid::new_v4(),
             ip: None,
-            ecdh_secondary: None,
+            nonce_key: None,
         }
     }
 
@@ -115,6 +114,12 @@ impl ClientKeypair {
 
     pub fn ecdsa(mut self, pub_key: ECDSAPubKey) -> Self {
         self.ecdsa = Some(pub_key);
+        self
+    }
+
+    pub fn kyber(mut self, shared_secret: [u8; 32]) -> Self {
+        self.chacha = Some(ChaChaCipher::init_with_raw_bytes(&shared_secret));
+        self.kyber = Some(shared_secret);
         self
     }
 
@@ -134,8 +139,8 @@ impl ClientKeypair {
         self
     }
 
-    pub fn ecdh_secondary(mut self, sec_ecdh: Option<SharedSecret>) -> Self {
-        self.ecdh_secondary = sec_ecdh;
+    pub fn nonce_key(mut self, key: Option<Vec<u8>>) -> Self {
+        self.nonce_key = key;
         self
     }
 }

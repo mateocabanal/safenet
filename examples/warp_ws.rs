@@ -9,9 +9,10 @@ use std::sync::{
 };
 
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
-use safenet::APPSTATE;
 use safenet::app_state::AppState;
-use safenet::frame::{DataFrame, Frame, FrameType, InitFrame, Options};
+use safenet::frame::{DataFrame, EncryptionType, Frame, FrameType, InitFrame, Options};
+use safenet::APPSTATE;
+use safenet::init_frame::kyber::KyberInitFrame;
 use tokio::sync::{mpsc, RwLock};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use uuid::Uuid;
@@ -32,8 +33,12 @@ async fn main() {
     // Keep track of all connected users, key is usize, value
     // is a websocket sender.
     use warp::http::header::{HeaderMap, HeaderValue};
-    
-    simple_logger::SimpleLogger::new().with_level(log::LevelFilter::Info).env().init().unwrap();
+
+    simple_logger::SimpleLogger::new()
+        .with_level(log::LevelFilter::Info)
+        .env()
+        .init()
+        .unwrap();
 
     if Path::new("./privkey.der").exists() {
         let mut priv_bytes = vec![];
@@ -44,10 +49,22 @@ async fn main() {
         log::info!("creating ECDSA keys");
         AppState::init().unwrap();
         let mut priv_file = File::create("./privkey.der").unwrap();
-        priv_file.write_all(&APPSTATE.get().unwrap().read().unwrap().priv_key_to_bytes()).unwrap();
+        priv_file
+            .write_all(&APPSTATE.get().unwrap().read().unwrap().priv_key_to_bytes())
+            .unwrap();
     }
 
-    log::debug!("ECDSA key: {:?}", APPSTATE.get().unwrap().read().unwrap().server_keys.ecdsa.get_pub_key());
+    log::debug!(
+        "ECDSA key: {:?}",
+        APPSTATE
+            .get()
+            .unwrap()
+            .read()
+            .unwrap()
+            .server_keys
+            .ecdsa
+            .get_pub_key()
+    );
 
     let users = Users::default();
     // Turn our "state" into a new Filter...
@@ -105,8 +122,25 @@ async fn user_connected(ws: WebSocket, users: Users) {
 
     let frame_type = frame_opts.get_frame_type();
     if frame_type == FrameType::Init {
-        let res_body = InitFrame::default().from_peer(&req_bytes).unwrap();
-        user_ws_tx.send(Message::binary(res_body)).await.unwrap();
+        let init_opts = frame_opts.get_init_opts().unwrap();
+
+        match init_opts.get_encryption_type().unwrap() {
+            EncryptionType::Legacy => {
+                let res_body = InitFrame::default().from_peer(&req_bytes).unwrap();
+                user_ws_tx.send(Message::binary(res_body)).await.unwrap();
+            }
+            EncryptionType::Kyber => {
+                let mut server_kyber_frame = KyberInitFrame::new();
+                let server_pub_key = server_kyber_frame.from_peer(req_bytes).unwrap();
+                user_ws_tx.send(Message::binary(server_pub_key)).await.unwrap();
+                let client_init = user_ws_rx.next().await.unwrap().unwrap().into_bytes();
+
+                let server_recv = server_kyber_frame.from_peer(&client_init).unwrap();
+                user_ws_tx.send(Message::binary(server_recv)).await.unwrap();
+
+                log::debug!("kyber shared secret: {:?}", server_kyber_frame.kyber.cipher.shared_secret);
+            }
+        }
     }
 
     if let Some(addr) = frame_opts.get_ip_addr() {

@@ -2,6 +2,7 @@ pub mod app_state;
 pub mod client;
 pub mod crypto;
 pub mod frame;
+pub mod init_frame;
 pub mod server;
 
 pub use crate::app_state::APPSTATE;
@@ -15,6 +16,7 @@ mod tests {
         fs::File,
         io::{Read, Write},
         path::Path,
+        task::Wake,
     };
 
     use crate::{
@@ -24,6 +26,7 @@ mod tests {
             kyber::KyberCipher,
         },
         frame::InitOptions,
+        init_frame::kyber::KyberInitFrame,
     };
     use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
     use simple_logger::SimpleLogger;
@@ -62,7 +65,7 @@ mod tests {
 
     #[post("/echo")]
     fn server_msg(req: Request) -> Response {
-        let req_bytes = req.get_raw_body().clone();
+        let req_bytes = req.get_raw_body();
         let data_frame: Result<DataFrame, Box<dyn std::error::Error>> =
             DataFrame::from_bytes(req_bytes);
         if data_frame.is_err() {
@@ -106,7 +109,7 @@ mod tests {
     }
 
     fn start_http_server() {
-        AppState::init();
+        let _ = AppState::init();
         APPSTATE
             .get()
             .expect("failed to get appstate")
@@ -144,7 +147,7 @@ mod tests {
 
     #[test]
     fn test_ecdsa() {
-        AppState::init();
+        let _ = AppState::init();
 
         let keys = ECDSAKeys::init();
         let msg = b"Hi ECDSA!";
@@ -154,7 +157,7 @@ mod tests {
 
     #[test]
     fn test_ecdh() {
-        AppState::init();
+        let _ = AppState::init();
         let alice_keys = ECDHKeys::init();
         let bob_keys = ECDHKeys::init();
         let alice_pub_key = alice_keys.get_pub_key();
@@ -171,7 +174,7 @@ mod tests {
 
     #[test]
     fn test_auth_ecdh() {
-        AppState::init();
+        let _ = AppState::init();
         use chacha20poly1305::aead::Aead;
 
         let alice_ecdsa = ECDSAKeys::init();
@@ -248,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_appstate() {
-        AppState::init();
+        let _ = AppState::init();
         let app_state_keys = &APPSTATE.get().unwrap().read().unwrap().server_keys;
         println!("App state: pub: {:#?}", app_state_keys.ecdsa.get_pub_key(),);
     }
@@ -397,77 +400,44 @@ mod tests {
     fn test_kyber_handler() -> Result<(), Box<dyn std::error::Error>> {
         setup_logger();
         start_http_server();
-        let mut client_cipher = KyberCipher::init();
-        let uuid = Uuid::new_v4();
-        let opts = Options {
-            frame_type: frame::FrameType::Init,
-            init_opts: Some(InitOptions::new_with_enc_type(frame::EncryptionType::Kyber).status(0)),
-            ip_addr: None,
-            map: HashMap::new(),
-        };
-        let opts_bytes: Vec<u8> = opts.into();
-        let frame = [
-            [0, 0, 0].as_slice(),
-            uuid.as_bytes(),
-            &(opts_bytes.len() as u32).to_be_bytes(),
-            &opts_bytes,
-            client_cipher.keys.public.as_slice(),
-        ]
-        .concat();
+        let mut client_frame = KyberInitFrame::new();
+        let mut server_frame = KyberInitFrame::new();
 
-        let server_pubkey = InitFrame::handler(frame).unwrap();
-        let server_pubkey_opts_len = u32::from_be_bytes(server_pubkey[19..23].try_into()?);
+        client_frame.uuid = Uuid::new_v4();
 
-        let client_init = client_cipher.client_init(
-            server_pubkey[23 + server_pubkey_opts_len as usize..]
-                .try_into()
-                .expect("failed in test"),
+        let server_pub_key = server_frame.from_peer(client_frame.to_bytes())?;
+        assert_eq!(
+            server_pub_key[23 + u32::from_be_bytes(server_pub_key[19..23].try_into()?) as usize..]
+                .len(),
+            1568 * 2
         );
+        let client_init = client_frame.from_peer(server_pub_key)?;
+        assert_eq!(
+            client_init[23 + u32::from_be_bytes(client_init[19..23].try_into()?) as usize..].len(),
+            (1568 + 3136) * 2
+        );
+        let server_res = server_frame.from_peer(client_init)?;
+        client_frame.from_peer(server_res)?;
 
-        let opts = Options {
-            frame_type: frame::FrameType::Init,
-            init_opts: Some(InitOptions::new_with_enc_type(frame::EncryptionType::Kyber).status(1)),
-            ip_addr: None,
-            map: HashMap::new(),
-        };
-        let opts_bytes: Vec<u8> = opts.clone().into();
-
-        let frame = [
-            [0, 0, 0].as_slice(),
-            uuid.as_bytes(),
-            &(opts_bytes.len() as u32).to_be_bytes(),
-            &opts_bytes,
-            &client_cipher.keys.public,
-            &client_init,
-        ]
-        .concat();
-
-        let server_res = InitFrame::handler(frame).unwrap();
-        let server_res_opts_len = u32::from_be_bytes(server_pubkey[19..23].try_into()?);
         println!(
-            "len of body: {}",
-            &server_res[23 + server_res_opts_len as usize..].len()
+            "cleint secret: {:?}",
+            client_frame.kyber_nonce.cipher.shared_secret
+        );
+        println!(
+            "server secret: {:?}",
+            server_frame.kyber_nonce.cipher.shared_secret
         );
 
-        client_cipher.client_confirm(
-            server_res[23 + server_res_opts_len as usize..]
-                .try_into()
-                .unwrap(),
+        assert_ne!(client_frame.kyber.cipher.shared_secret, [0u8; 32]);
+        assert_eq!(
+            server_frame.kyber.cipher.shared_secret,
+            client_frame.kyber.cipher.shared_secret
         );
 
         assert_eq!(
-            client_cipher.cipher.shared_secret,
-            APPSTATE
-                .get()
-                .unwrap()
-                .read()?
-                .ongoing_kyber_conns
-                .get(&uuid)
-                .unwrap()
-                .cipher
-                .shared_secret
+            server_frame.kyber_nonce.cipher.shared_secret,
+            client_frame.kyber_nonce.cipher.shared_secret
         );
-
         Ok(())
     }
 }

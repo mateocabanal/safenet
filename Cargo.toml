@@ -37,7 +37,7 @@ tokio-stream = "0.1.14"
 criterion = "0.5.1"
 
 [features]
-default = ["server", "client", "ring"]
+default = ["server", "client", "rust_crypto"]
 client = []
 server = []
 rust_crypto = ["dep:p384"]

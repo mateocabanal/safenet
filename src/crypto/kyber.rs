@@ -25,7 +25,7 @@ impl KyberCipher {
             .unwrap()
     }
 
-    pub fn server_send(
+    pub fn server_recv(
         &mut self,
         client_init: AkeSendInit,
         client_pubkey: PublicKey,
