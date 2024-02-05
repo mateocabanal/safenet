@@ -2,8 +2,9 @@
 //! As of the time of writing, the Safenet spec defines two types of Frames,
 //! InitFrames and DataFrames.
 
-use std::{collections::HashMap, net::SocketAddr};
+use std::net::SocketAddr;
 use uuid::Uuid;
+use crate::options::Options;
 
 use blake2::{digest::consts::U24, Blake2b, Digest};
 use chacha20poly1305::aead::Aead;
@@ -12,9 +13,7 @@ use crate::{
     app_state::ClientKeypair,
     crypto::{
         key_exchange::{ECDHKeys, ECDHPubKey, ECDSAPubKey, Signature},
-        kyber::KyberCipher,
     },
-    init_frame::kyber::KyberInitFrame,
     APPSTATE,
 };
 
@@ -105,197 +104,13 @@ impl Into<Vec<u8>> for InitOptions {
     }
 }
 
-/// Metadata carried in every frame.
-/// The metadata does not have a known size,
-/// so it can vary in size.
-/// Options are required to be sent in the frame.
-/// As of now, options are not encrypted. However, options are planned to be encrypted.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Options {
-    pub(crate) frame_type: FrameType,
-    pub(crate) ip_addr: Option<SocketAddr>,
-    pub(crate) init_opts: Option<InitOptions>,
-    pub(crate) map: HashMap<String, String>,
-}
-
-impl Default for Options {
-    fn default() -> Self {
-        Options {
-            frame_type: FrameType::Data,
-            ip_addr: APPSTATE
-                .get()
-                .unwrap()
-                .read()
-                .expect("could not acquire read handle on appstate")
-                .server_addr,
-            init_opts: None,
-            map: HashMap::new(),
-        }
-    }
-}
-
-#[allow(clippy::from_over_into)]
-impl Into<Vec<u8>> for Options {
-    fn into(self) -> Vec<u8> {
-        let header_as_string = format!("frame_type = {}\u{00ae}", self.frame_type as u8);
-        let ip_addr_as_string = if let Some(addr) = self.ip_addr {
-            format!("ip_addr = {}\u{00ae}", addr)
-        } else {
-            "".to_string()
-        };
-
-        let custom_headers = self
-            .map
-            .into_iter()
-            .fold(String::new(), |mut output, (k, v)| {
-                output += format!("{k} = {v}\u{00ae}").as_str();
-                output
-            });
-
-        if self.frame_type == FrameType::Init {
-            [
-                header_as_string.into_bytes(),
-                ip_addr_as_string.into_bytes(),
-                self.init_opts.unwrap().into(),
-                custom_headers.into_bytes(),
-            ]
-            .concat()
-        } else {
-            [
-                header_as_string.into_bytes(),
-                ip_addr_as_string.into_bytes(),
-                custom_headers.into_bytes(),
-            ]
-            .concat()
-        }
-    }
-}
-
-// NOTE: What a mess...
-// This has to be cleaned up
-impl TryFrom<&[u8]> for Options {
-    type Error = Box<dyn std::error::Error>;
-    fn try_from(options_bytes: &[u8]) -> Result<Self, Self::Error> {
-        let mut current_opt_index = 0usize;
-        let mut options_map = HashMap::new();
-
-        log::trace!("options bytes: {:?}\x1b[38;2;108;190;237m", options_bytes);
-
-        log::trace!(
-            "\x1b[38;2;238;171;196mBEGIN OPTION PARSING LOOP!\x1b[1;0m\x1b[38;2;108;190;237m"
-        );
-        while let Some(option_slice) = options_bytes[current_opt_index..]
-            .iter()
-            .enumerate()
-            .find(|(_, ascii_code)| **ascii_code == 174)
-            .map(|(index, _)| &options_bytes[current_opt_index..current_opt_index + index])
-        {
-            //            log::trace!("\x1b[38;2;108;190;237m");
-            #[cfg(test)]
-            println!(
-                "length of option, current_opt_index: {:?}, {}",
-                option_slice, current_opt_index
-            );
-
-            let equal_sign_pos = option_slice
-                .iter()
-                .position(|ascii_code| *ascii_code == 61)
-                .ok_or("could not find '=' in option")?;
-            let header_key = &option_slice[..equal_sign_pos];
-            let header_value = &option_slice[equal_sign_pos + 1..option_slice.len() - 1];
-
-            let header_key_str = std::str::from_utf8(header_key)?.trim().to_string();
-
-            let header_value_str = std::str::from_utf8(header_value)?.trim().to_string();
-
-            log::trace!("header: {header_key_str} = {header_value_str}");
-
-            options_map.insert(header_key_str, header_value_str);
-
-            current_opt_index += option_slice.len() + 1;
-        }
-        log::trace!("\x1b[1;0m\x1b[38;2;238;171;196mEND OF OPTION PARSING LOOP!\x1b[1;0m\n");
-
-        let frame_type = match options_map
-            .get("frame_type")
-            .ok_or("frame_type option not sent!")?
-            .parse::<u8>()?
-        {
-            0 => FrameType::Init,
-            1 => FrameType::Data,
-            2u8..=u8::MAX => return Err("frame_type out of bounds".into()),
-        };
-
-        let init_opts = if frame_type == FrameType::Init {
-            let enc_type = match options_map
-                .get("encryption_type")
-                .ok_or("encryption_type flag not found")?
-                .parse::<u8>()?
-            {
-                0 => EncryptionType::Legacy,
-                1 => EncryptionType::Kyber,
-                2u8..=u8::MAX => return Err("enc_type out of bounds".into()),
-            };
-
-            let status = options_map.get("status");
-
-            // If not defined, it is off
-            let nonce_secondary_key = options_map
-                .get("nonce_secondary_key")
-                .ok_or("nonce_secondary_key flag not defined")?
-                .parse::<u8>()?;
-            Some(
-                InitOptions::new_with_enc_type(enc_type)
-                    .status(status.unwrap_or(&String::from("0")).parse::<u8>()?)
-                    .nonce_secondary_key(nonce_secondary_key == 1),
-            )
-        } else {
-            None
-        };
-        let options = Options {
-            frame_type,
-            ip_addr: if let Some(ip_addr_str) = options_map.get("ip_addr") {
-                if let Ok(ip_socket_addr) = ip_addr_str.parse::<SocketAddr>() {
-                    Some(ip_socket_addr)
-                } else {
-                    None
-                }
-            } else {
-                None
-            },
-            init_opts,
-            map: options_map,
-        };
-
-        Ok(options)
-    }
-}
-
-/// Options that might be present in any frame
-impl Options {
-    pub fn get_frame_type(&self) -> FrameType {
-        self.frame_type
-    }
-
-    pub fn get_ip_addr(&self) -> Option<SocketAddr> {
-        self.ip_addr
-    }
-
-    pub fn get_init_opts(&self) -> Option<InitOptions> {
-        self.init_opts
-    }
-
-    pub fn get_map(&mut self) -> &mut HashMap<String, String> {
-        &mut self.map
-    }
-}
 
 pub trait Frame {
     fn to_bytes(&self) -> Vec<u8>;
     fn from_bytes<T>(bytes: T) -> Result<Self, Box<dyn std::error::Error>>
     where
-        T: Into<Box<[u8]>>,
-        Self: std::marker::Sized;
+        T: AsRef<[u8]>,
+        Self: Sized;
 }
 
 pub trait ToInitFrame {
@@ -329,9 +144,9 @@ pub struct InitFrame {
     pub ecdh_nonce_keys: Option<ECDHKeys>,
 }
 
-impl TryFrom<Box<[u8]>> for InitFrame {
+impl TryFrom<&[u8]> for InitFrame {
     type Error = Box<dyn std::error::Error>;
-    fn try_from(frame_bytes: Box<[u8]>) -> Result<InitFrame, Self::Error> {
+    fn try_from(frame_bytes: &[u8]) -> Result<InitFrame, Self::Error> {
         let options_len = u32::from_be_bytes(frame_bytes[19..23].try_into().unwrap());
         let options_arr = &frame_bytes[23..23 + options_len as usize];
         let options = Options::try_from(options_arr)?;
@@ -420,14 +235,13 @@ impl Frame for InitFrame {
 
     fn from_bytes<T>(bytes: T) -> Result<Self, Box<dyn std::error::Error>>
     where
-        T: Into<Box<[u8]>>,
+        T: AsRef<[u8]>,
     {
-        let boxed_bytes = bytes.into();
+        let boxed_bytes = bytes.as_ref();
         InitFrame::try_from(boxed_bytes)
     }
 }
 
-#[allow(clippy::field_reassign_with_default)]
 impl Default for InitFrame {
     /// Generates a InitFrame ready to be sent to another client.
     fn default() -> InitFrame {
@@ -439,13 +253,13 @@ impl Default for InitFrame {
         let id = appstate_r.user_id;
         let uuid = appstate_r.uuid.into_bytes();
 
-        let mut options = Options::default();
-        options.frame_type = FrameType::Init;
-        options.init_opts = Some(
-            InitOptions::new_with_enc_type(EncryptionType::Legacy)
+        let options = Options {
+            frame_type: FrameType::Init,
+            init_opts: Some(InitOptions::new_with_enc_type(EncryptionType::Legacy)
                 .status(0)
-                .nonce_secondary_key(true),
-        );
+                .nonce_secondary_key(true)),
+            ..Default::default()
+        };
         let ecdsa_pub_key = appstate_r.server_keys.ecdsa.get_pub_key().clone();
         let ecdh_keys = Some(ECDHKeys::init());
         let ecdh_pub_key = ecdh_keys.as_ref().unwrap().get_pub_key();
@@ -779,9 +593,9 @@ impl Frame for DataFrame {
     }
     fn from_bytes<T>(bytes: T) -> Result<Self, Box<dyn std::error::Error>>
     where
-        T: Into<Box<[u8]>>,
+        T: AsRef<[u8]>
     {
-        let boxed_bytes = bytes.into();
+        let boxed_bytes = bytes.as_ref();
         DataFrame::try_from(boxed_bytes)
     }
 }
@@ -1009,9 +823,9 @@ impl DataFrame {
     }
 }
 
-impl TryFrom<Box<[u8]>> for DataFrame {
+impl TryFrom<&[u8]> for DataFrame {
     type Error = Box<dyn std::error::Error>;
-    fn try_from(frame_slice: Box<[u8]>) -> Result<DataFrame, Box<dyn std::error::Error>> {
+    fn try_from(frame_slice: &[u8]) -> Result<DataFrame, Box<dyn std::error::Error>> {
         log::trace!("size of frame: {}", frame_slice.len());
         let id = frame_slice[0..=2].try_into()?;
         let uuid = frame_slice[3..=18].try_into()?;

@@ -1,9 +1,8 @@
 pub mod app_state;
-pub mod client;
 pub mod crypto;
 pub mod frame;
 pub mod init_frame;
-pub mod server;
+pub mod options;
 
 pub use crate::app_state::APPSTATE;
 
@@ -12,20 +11,16 @@ pub use uuid;
 #[cfg(test)]
 mod tests {
     use std::{
-        collections::HashMap,
         fs::File,
         io::{Read, Write},
         path::Path,
-        task::Wake,
     };
 
     use crate::{
         app_state::AppState,
         crypto::{
             key_exchange::{ECDHKeys, ECDHPubKey, ECDSAKeys, ECDSAPubKey, Signature},
-            kyber::KyberCipher,
         },
-        frame::InitOptions,
         init_frame::kyber::KyberInitFrame,
     };
     use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
@@ -34,8 +29,9 @@ mod tests {
     use crate::{
         app_state::ClientKeypair,
         crypto::aes::ChaChaCipher,
-        frame::{DataFrame, Frame, InitFrame, Options},
+        frame::{DataFrame, Frame, InitFrame},
         uuid::Uuid,
+        options::Options,
     };
 
     use tinyhttp::prelude::*;
@@ -346,7 +342,7 @@ mod tests {
     fn verify_options() -> Result<(), Box<dyn std::error::Error>> {
         let options = Options::default();
         let bytes: Vec<u8> = options.clone().into();
-        let options_2 = Options::try_from(bytes.as_slice())?;
+        let _options_2 = Options::try_from(bytes.as_slice())?;
         // HashMap inside of Options is fucking with this assert
         // assert_eq!(options, options_2);
         Ok(())
@@ -375,7 +371,7 @@ mod tests {
         let ecdsa_bytes = APPSTATE.get().unwrap().read().unwrap().priv_key_to_bytes();
 
         println!("{}", ecdsa_bytes.len());
-        let ecdsa_keys = ECDSAKeys::from_raw_bytes(&ecdsa_bytes).unwrap();
+        let _ecdsa_keys = ECDSAKeys::from_raw_bytes(&ecdsa_bytes).unwrap();
 
         if Path::new("./target/privkey.der").is_file() {
             let mut handle = vec![];

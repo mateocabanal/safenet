@@ -59,7 +59,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .with_body(data_frame.to_bytes())
                 .send()?;
 
-            let mut server_res: DataFrame = res.into_bytes().into_boxed_slice().try_into().unwrap();
+            let mut server_res = DataFrame::from_bytes(res.as_bytes())?;
+
             server_res.decode_frame().unwrap();
             println!("{}", std::str::from_utf8(&server_res.body).unwrap());
         }

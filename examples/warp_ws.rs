@@ -10,7 +10,8 @@ use std::sync::{
 
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use safenet::app_state::AppState;
-use safenet::frame::{DataFrame, EncryptionType, Frame, FrameType, InitFrame, Options};
+use safenet::options::Options;
+use safenet::frame::{DataFrame, EncryptionType, Frame, FrameType, InitFrame};
 use safenet::APPSTATE;
 use safenet::init_frame::kyber::KyberInitFrame;
 use tokio::sync::{mpsc, RwLock};
@@ -190,7 +191,7 @@ async fn user_connected(ws: WebSocket, users: Users) {
 async fn user_message(my_id: Uuid, msg: Message, users: &Users) {
     // Skip any non-Text messages...
     let recv_bytes = msg.into_bytes();
-    let mut data_frame = DataFrame::try_from(recv_bytes.into_boxed_slice()).unwrap();
+    let mut data_frame = DataFrame::from_bytes(&recv_bytes).unwrap();
     data_frame.decode_frame().unwrap();
     let msg = String::from_utf8(data_frame.body.to_vec()).unwrap();
 

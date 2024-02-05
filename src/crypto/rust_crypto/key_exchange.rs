@@ -5,7 +5,7 @@ use p384::{
         SigningKey, VerifyingKey,
     },
     elliptic_curve::sec1::ToEncodedPoint,
-    pkcs8::{DecodePrivateKey, DecodePublicKey, EncodePrivateKey, EncodePublicKey},
+    pkcs8::{DecodePrivateKey, EncodePrivateKey },
     EncodedPoint, PublicKey,
 };
 

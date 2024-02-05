@@ -1,12 +1,11 @@
 use std::net::{IpAddr, SocketAddr, TcpListener};
-use std::sync::{Arc, Mutex};
 use std::thread::sleep;
 use std::time::Duration;
 
 use clap::Parser;
 use local_ip_address::local_ip;
 use safenet::app_state::AppState;
-use safenet::frame::{FrameType, InitFrame, Options};
+use safenet::frame::{InitFrame};
 use safenet::{
     frame::{DataFrame, Frame},
     uuid::Uuid,
@@ -84,7 +83,7 @@ struct Args {
 
 #[allow(unreachable_code)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
-    AppState::init();
+    AppState::init()?;
     simple_logger::SimpleLogger::new()
         .with_level(log::LevelFilter::Info)
         .env()

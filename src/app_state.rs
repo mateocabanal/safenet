@@ -1,7 +1,6 @@
 use crate::crypto::{
     aes::ChaChaCipher,
     key_exchange::{ECDHKeys, ECDSAKeys, ECDSAPubKey, SharedSecret},
-    kyber::KyberCipher,
 };
 use std::{
     collections::HashMap,

@@ -2,9 +2,10 @@ use pqc_kyber::{AKE_INIT_BYTES, AKE_RESPONSE_BYTES, KYBER_PUBLICKEYBYTES};
 use uuid::Uuid;
 
 use crate::{
+    options::Options,
     app_state::ClientKeypair,
     crypto::kyber::KyberCipher,
-    frame::{EncryptionType, Frame, FrameType, InitFrame, InitOptions, Options},
+    frame::{EncryptionType, Frame, FrameType, InitFrame, InitOptions},
     APPSTATE,
 };
 
@@ -32,10 +33,10 @@ impl Frame for KyberInitFrame {
 
     fn from_bytes<T>(bytes: T) -> Result<Self, Box<dyn std::error::Error>>
     where
-        T: Into<Box<[u8]>>,
-        Self: std::marker::Sized,
+        T: AsRef<[u8]>,
+        Self: Sized,
     {
-        let bytes = bytes.into();
+        let bytes = bytes.as_ref();
         let id = bytes[0..3].try_into()?;
         let uuid = Uuid::from_slice(&bytes[3..19]).unwrap();
         let opts_len = u32::from_be_bytes(bytes[19..23].try_into()?);
