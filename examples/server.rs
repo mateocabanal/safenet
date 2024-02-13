@@ -5,7 +5,7 @@ use std::time::Duration;
 use clap::Parser;
 use local_ip_address::local_ip;
 use safenet::app_state::AppState;
-use safenet::frame::{InitFrame};
+use safenet::frame::{EncryptionType, InitFrame};
 use safenet::{
     frame::{DataFrame, Frame},
     uuid::Uuid,
@@ -21,7 +21,7 @@ fn http_test() -> &'static str {
 #[post("/conn/init")]
 fn conn_init(req: Request) -> Response {
     let req_bytes = req.get_raw_body();
-    let init_frame = InitFrame::default();
+    let init_frame = InitFrame::new(EncryptionType::KyberDith);
     let init_frame_bytes = init_frame.from_peer(req_bytes);
 
     if let Ok(bytes) = init_frame_bytes {

@@ -18,9 +18,7 @@ mod tests {
 
     use crate::{
         app_state::AppState,
-        crypto::{
-            key_exchange::{ECDHKeys, ECDHPubKey, ECDSAKeys, ECDSAPubKey, Signature},
-        },
+        crypto::key_exchange::{ECDHKeys, ECDHPubKey, ECDSAKeys, ECDSAPubKey, Signature},
         init_frame::kyber::KyberInitFrame,
     };
     use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
@@ -30,11 +28,12 @@ mod tests {
         app_state::ClientKeypair,
         crypto::aes::ChaChaCipher,
         frame::{DataFrame, Frame, InitFrame},
-        uuid::Uuid,
         options::Options,
+        uuid::Uuid,
     };
 
     use tinyhttp::prelude::*;
+    use crate::frame::{DITH_SIG_INDEX, EncryptionType, KYBER_PUBKEY_INDEX, KYBER_PUBKEY_INDEX2};
 
     #[get("/keys/pub")]
     fn keys_pub() -> Vec<u8> {
@@ -132,11 +131,11 @@ mod tests {
     fn generate_keypair(id: String) -> ClientKeypair {
         let ecdsa_keypair = ECDSAKeys::init();
         let ecdh_keypair = ECDHKeys::init();
-        let shared_secret = ECDHKeys::init().gen_shared_secret(&ecdh_keypair.get_pub_key());
+        let shared_secret = ECDHKeys::init().gen_shared_secret_from_key(&ecdh_keypair.get_pub_key());
 
         ClientKeypair::new()
-            .ecdsa(ecdsa_keypair.get_pub_key().clone())
-            .ecdh(shared_secret)
+            .pub_key(Box::new(ecdsa_keypair.get_pub_key()))
+            .shared_secret(shared_secret.raw_secret_bytes().into_boxed_slice())
             .uuid(uuid::Uuid::new_v4())
             .id(id)
     }
@@ -158,8 +157,8 @@ mod tests {
         let bob_keys = ECDHKeys::init();
         let alice_pub_key = alice_keys.get_pub_key();
         let bob_pub_key = bob_keys.get_pub_key();
-        let alice_shared = alice_keys.gen_shared_secret(&bob_pub_key);
-        let bob_shared = bob_keys.gen_shared_secret(&alice_pub_key);
+        let alice_shared = alice_keys.gen_shared_secret_from_key(&bob_pub_key);
+        let bob_shared = bob_keys.gen_shared_secret_from_key(&alice_pub_key);
         // assert_ne!(alice_keys.priv_key, bob_keys.priv_key);
 
         assert_eq!(
@@ -214,8 +213,8 @@ mod tests {
         let returned_bob_ecdh_pub_key = ECDHPubKey::from_sec1_bytes(&bob_ecdh_pub_key_sec1_bytes)
             .expect("failed to instantiate pub key from bytes!");
 
-        let alice_secret = alice_ecdh.gen_shared_secret(&returned_bob_ecdh_pub_key);
-        let bob_secret = bob_ecdh.gen_shared_secret(&returned_alice_ecdh_pub_key);
+        let alice_secret = alice_ecdh.gen_shared_secret_from_key(&returned_bob_ecdh_pub_key);
+        let bob_secret = bob_ecdh.gen_shared_secret_from_key(&returned_alice_ecdh_pub_key);
 
         println!("length of dh: {}", alice_secret.raw_secret_bytes().len());
 
@@ -434,6 +433,29 @@ mod tests {
             server_frame.kyber_nonce.cipher.shared_secret,
             client_frame.kyber_nonce.cipher.shared_secret
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_kyberdith_init_frame() -> Result<(), Box<dyn std::error::Error>> {
+        let mut first_init_frame = InitFrame::new(EncryptionType::KyberDith);
+
+        let client_uuid = Uuid::new_v4();
+        first_init_frame.uuid = client_uuid.as_bytes().clone();
+
+        let first_init_frame_bytes = first_init_frame.to_bytes();
+        let opts_len = u32::from_be_bytes(first_init_frame_bytes[19..23].try_into()?) as usize;
+        assert_eq!(first_init_frame.keyneg_signature, first_init_frame_bytes[23 + opts_len + DITH_SIG_INDEX..].to_vec());
+
+        let mut sec_init_frame = InitFrame::new(EncryptionType::KyberDith);
+        let server_uuid = Uuid::new_v4();
+        sec_init_frame.uuid = server_uuid.as_bytes().clone();
+
+        let server_res = first_init_frame.from_peer(sec_init_frame.to_bytes())?;
+        println!("len of server res: {}", server_res.len());
+        sec_init_frame.from_peer(server_res)?;
+
+        assert_eq!(APPSTATE.get().unwrap().read()?.client_keys.get(&client_uuid).unwrap().shared_secret.as_ref().unwrap(), APPSTATE.get().unwrap().read()?.client_keys.get(&server_uuid).unwrap().shared_secret.as_ref().unwrap());
         Ok(())
     }
 }

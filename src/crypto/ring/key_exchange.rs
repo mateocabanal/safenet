@@ -158,7 +158,7 @@ impl ECDHKeys {
         self.pub_key.get_pub_key_to_bytes()
     }
 
-    pub fn gen_shared_secret(self, peer_dh_key: &ECDHPubKey) -> SharedSecret {
+    pub fn gen_shared_secret_from_key(self, peer_dh_key: &ECDHPubKey) -> SharedSecret {
         log::trace!(
             "len of peer pub dh key: {}",
             peer_dh_key.pub_key.as_ref().len()

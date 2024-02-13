@@ -1,8 +1,8 @@
+use crate::frame::{EncryptionType, FrameType, InitOptions};
+use crate::APPSTATE;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use thiserror::Error;
-use crate::APPSTATE;
-use crate::frame::{EncryptionType, FrameType, InitOptions};
 
 /// Metadata carried in every frame.
 /// The metadata does not have a known size,
@@ -58,14 +58,14 @@ impl Into<Vec<u8>> for Options {
                 self.init_opts.unwrap().into(),
                 custom_headers.into_bytes(),
             ]
-                .concat()
+            .concat()
         } else {
             [
                 header_as_string.into_bytes(),
                 ip_addr_as_string.into_bytes(),
                 custom_headers.into_bytes(),
             ]
-                .concat()
+            .concat()
         }
     }
 }
@@ -133,7 +133,8 @@ impl TryFrom<&[u8]> for Options {
             {
                 0 => EncryptionType::Legacy,
                 1 => EncryptionType::Kyber,
-                2u8..=u8::MAX => return Err("enc_type out of bounds".into()),
+                2 => EncryptionType::KyberDith,
+                3u8..=u8::MAX => return Err("enc_type out of bounds".into()),
             };
 
             let status = options_map.get("status");
@@ -192,5 +193,6 @@ impl Options {
 #[derive(Debug, Error)]
 pub enum OptionError<'a> {
     #[error("Missing option: {}", .0)]
-    MissingOpt(&'a str)
+    MissingOpt(&'a str),
 }
+

@@ -1,7 +1,10 @@
 use crate::crypto::{
     aes::ChaChaCipher,
+    dilithium::DilithiumKeyPair,
     key_exchange::{ECDHKeys, ECDSAKeys, ECDSAPubKey, SharedSecret},
+    PubKey,
 };
+
 use std::{
     collections::HashMap,
     net::SocketAddr,
@@ -64,8 +67,8 @@ impl AppState {
 
 pub struct ClientKeypair {
     pub id: Option<String>,
-    pub ecdsa: Option<ECDSAPubKey>,
-    pub ecdh: Option<SharedSecret>,
+    pub pub_key: Option<Box<dyn PubKey>>,
+    pub shared_secret: Option<Box<[u8]>>,
     pub kyber: Option<[u8; 32]>,
     pub chacha: Option<ChaChaCipher>,
     pub uuid: Uuid,
@@ -79,8 +82,8 @@ impl std::fmt::Debug for ClientKeypair {
             f,
             "(id: {}\n, ecdsa: {:?}\n, ecdh: {:?}\n, uuid: {}\n)",
             self.id.as_ref().unwrap(),
-            self.ecdsa.as_ref().unwrap().to_bytes(),
-            self.ecdh.as_ref().unwrap().raw_secret_bytes(),
+            self.pub_key.as_ref().unwrap().to_bytes(),
+            self.shared_secret.as_ref().unwrap().as_ref(),
             self.uuid
         )
     }
@@ -96,8 +99,8 @@ impl ClientKeypair {
     pub fn new() -> ClientKeypair {
         ClientKeypair {
             id: None,
-            ecdsa: None,
-            ecdh: None,
+            pub_key: None,
+            shared_secret: None,
             kyber: None,
             chacha: None,
             uuid: Uuid::new_v4(),
@@ -111,8 +114,8 @@ impl ClientKeypair {
         self
     }
 
-    pub fn ecdsa(mut self, pub_key: ECDSAPubKey) -> Self {
-        self.ecdsa = Some(pub_key);
+    pub fn pub_key(mut self, pub_key: Box<dyn PubKey>) -> Self {
+        self.pub_key = Some(pub_key);
         self
     }
 
@@ -122,9 +125,9 @@ impl ClientKeypair {
         self
     }
 
-    pub fn ecdh(mut self, shared_secret: SharedSecret) -> Self {
-        self.chacha = Some(ChaChaCipher::init_with_key(&shared_secret));
-        self.ecdh = Some(shared_secret);
+    pub fn shared_secret(mut self, shared_secret: Box<[u8]>) -> Self {
+        self.chacha = Some(ChaChaCipher::init_with_raw_bytes(&shared_secret));
+        self.shared_secret = Some(shared_secret);
         self
     }
 
@@ -147,20 +150,31 @@ impl ClientKeypair {
 pub struct ServerKeys {
     pub ecdsa: ECDSAKeys,
     pub ecdh: ECDHKeys,
+    pub dilithium: DilithiumKeyPair,
 }
 
 impl ServerKeys {
     pub fn init() -> ServerKeys {
         let ecdsa = ECDSAKeys::init();
         let ecdh = ECDHKeys::init();
-        ServerKeys { ecdsa, ecdh }
+        let dilithium = DilithiumKeyPair::init();
+        ServerKeys {
+            ecdsa,
+            ecdh,
+            dilithium,
+        }
     }
 
     fn init_with_priv_key(bytes: &[u8]) -> Result<ServerKeys, Box<dyn std::error::Error>> {
         let ecdsa = ECDSAKeys::from_raw_bytes(bytes)?;
         let ecdh = ECDHKeys::init();
+        let dilithium = DilithiumKeyPair::init();
 
-        Ok(ServerKeys { ecdsa, ecdh })
+        Ok(ServerKeys {
+            ecdsa,
+            ecdh,
+            dilithium,
+        })
     }
 }
 

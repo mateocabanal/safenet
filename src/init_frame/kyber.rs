@@ -96,6 +96,7 @@ impl KyberInitFrame {
         let body = &bytes[body_index..];
 
         match init_opts.get_encryption_type().unwrap() {
+            EncryptionType::KyberDith => InitFrame::new(EncryptionType::KyberDith).from_peer(bytes),
             EncryptionType::Legacy => InitFrame::default().from_peer(bytes),
             EncryptionType::Kyber => {
                 let status = init_opts.get_status();

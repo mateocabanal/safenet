@@ -1,5 +1,48 @@
-use pqc_kyber::{keypair, Ake, AkeSendInit, AkeSendResponse, Keypair, PublicKey};
+use pqc_kyber::{
+    decapsulate, encapsulate, keypair, Ake, AkeSendInit, AkeSendResponse, Keypair, PublicKey,
+    KYBER_CIPHERTEXTBYTES,
+};
 use rand::rngs::ThreadRng;
+
+use crate::crypto::{KeyNeg, PubKey};
+pub struct KyberDithCipher {
+    pub pub_key: [u8; pqc_kyber::KYBER_PUBLICKEYBYTES],
+    pub priv_key: [u8; pqc_kyber::KYBER_SECRETKEYBYTES],
+    pub shared_secret: Option<[u8; pqc_kyber::KYBER_SSBYTES]>,
+}
+
+impl KyberDithCipher {
+    pub fn init() -> KyberDithCipher {
+        let keypair = keypair(&mut ThreadRng::default()).unwrap();
+
+        KyberDithCipher {
+            pub_key: keypair.public,
+            priv_key: keypair.secret,
+            shared_secret: None,
+        }
+    }
+
+    pub fn gen_ciphertext(&mut self, pubkey: &[u8]) -> [u8; KYBER_CIPHERTEXTBYTES] {
+        let (ciphertext, shared_secret) = encapsulate(pubkey, &mut ThreadRng::default()).unwrap();
+        self.shared_secret = Some(shared_secret);
+
+        ciphertext
+    }
+}
+
+impl KeyNeg for KyberDithCipher {
+    fn to_bytes(&self) -> Vec<u8> {
+        self.pub_key.to_vec()
+    }
+
+    fn gen_shared_secret(self, pub_key: &[u8]) -> Box<[u8]> {
+        if pub_key.len() == KYBER_CIPHERTEXTBYTES {
+            Box::new(decapsulate(pub_key, &self.priv_key).unwrap())
+        } else {
+            panic!("gen_shared_secret: not same len!\nfound: {}, expected: {}", pub_key.len(), KYBER_CIPHERTEXTBYTES);
+        }
+    }
+}
 
 #[derive(Clone)]
 pub struct KyberCipher {

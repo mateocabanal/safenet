@@ -3,7 +3,7 @@ use dialoguer::Input;
 use minreq::Request;
 use safenet::{
     app_state::AppState,
-    frame::{DataFrame, Frame, InitFrame},
+    frame::{DataFrame, EncryptionType, Frame, InitFrame},
     APPSTATE,
 };
 use uuid::Uuid;
@@ -31,7 +31,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     APPSTATE.get().unwrap().write()?.user_id = args.id.as_bytes().try_into()?;
     let peer: String = args.peer.parse()?;
 
-    let init_frame = InitFrame::default();
+    let init_frame = InitFrame::new(EncryptionType::KyberDith);
     println!("connecting to: {peer}");
     let mut result = minreq::post(format!("http://{peer}/conn/init"))
         .with_body(init_frame.to_bytes())

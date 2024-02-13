@@ -129,7 +129,8 @@ async fn user_connected(ws: WebSocket, users: Users) {
             EncryptionType::Legacy => {
                 let res_body = InitFrame::default().from_peer(&req_bytes).unwrap();
                 user_ws_tx.send(Message::binary(res_body)).await.unwrap();
-            }
+            },
+            EncryptionType::KyberDith => todo!(),
             EncryptionType::Kyber => {
                 let mut server_kyber_frame = KyberInitFrame::new();
                 let server_pub_key = server_kyber_frame.from_peer(req_bytes).unwrap();

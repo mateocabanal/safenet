@@ -5,9 +5,11 @@ use p384::{
         SigningKey, VerifyingKey,
     },
     elliptic_curve::sec1::ToEncodedPoint,
-    pkcs8::{DecodePrivateKey, EncodePrivateKey },
+    pkcs8::{DecodePrivateKey, EncodePrivateKey},
     EncodedPoint, PublicKey,
 };
+
+use crate::crypto::{KeyNeg, PubKey};
 
 use rand::rngs::OsRng;
 
@@ -56,6 +58,7 @@ impl ECDSAPubKey {
         }
     }
 }
+
 
 #[derive(Clone, Debug)]
 pub struct ECDSAKeys {
@@ -172,8 +175,9 @@ impl ECDHKeys {
             .to_vec()
     }
 
-    pub fn gen_shared_secret(&self, peer_dh_key: &ECDHPubKey) -> SharedSecret {
+    pub fn gen_shared_secret_from_key(&self, peer_dh_key: &ECDHPubKey) -> SharedSecret {
         let shared_secret = self.priv_key.diffie_hellman(&peer_dh_key.get_pub_key());
         SharedSecret { shared_secret }
     }
 }
+
