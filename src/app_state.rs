@@ -61,7 +61,11 @@ impl AppState {
     }
 
     pub fn priv_key_to_bytes(&self) -> Vec<u8> {
-        self.server_keys.ecdsa.to_bytes().unwrap()
+        [
+            self.server_keys.ecdsa.to_bytes().unwrap(),
+            self.server_keys.dilithium.to_bytes(),
+        ]
+        .concat()
     }
 }
 
@@ -165,16 +169,22 @@ impl ServerKeys {
         }
     }
 
-    fn init_with_priv_key(bytes: &[u8]) -> Result<ServerKeys, Box<dyn std::error::Error>> {
-        let ecdsa = ECDSAKeys::from_raw_bytes(bytes)?;
+    pub(crate) fn init_with_priv_key(
+        bytes: &[u8],
+    ) -> Result<ServerKeys, Box<dyn std::error::Error>> {
+        let ecdsa = ECDSAKeys::from_raw_bytes(&bytes[0..185])?;
         let ecdh = ECDHKeys::init();
-        let dilithium = DilithiumKeyPair::init();
+        let dilithium = DilithiumKeyPair::init_from_bytes(&bytes[185..]);
 
-        Ok(ServerKeys {
-            ecdsa,
-            ecdh,
-            dilithium,
-        })
+        if let Ok(dilithium) = dilithium {
+            Ok(ServerKeys {
+                ecdsa,
+                ecdh,
+                dilithium,
+            })
+        } else {
+            Err("invalid dilithium keys".into())
+        }
     }
 }
 

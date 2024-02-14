@@ -12,12 +12,25 @@ impl DilithiumKeyPair {
         Self { keypair }
     }
 
+    pub fn init_from_bytes(bytes: &[u8]) -> Result<Self, SignError> {
+        let public = &bytes[..pqc_dilithium::PUBLICKEYBYTES];
+        let priv_key = &bytes[pqc_dilithium::PUBLICKEYBYTES
+            ..pqc_dilithium::PUBLICKEYBYTES + pqc_dilithium::SECRETKEYBYTES];
+        let keypair = Keypair::new(public.to_vec(), priv_key.to_vec())?;
+
+        Ok(Self { keypair })
+    }
+
     pub fn get_pub(&self) -> DilithiumPubKey {
         DilithiumPubKey::from_bytes(&self.keypair.public).unwrap() // Shouldn't fail
     }
 
     pub fn sign(&self, msg: &[u8]) -> Vec<u8> {
         self.keypair.sign(msg).to_vec()
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        [&self.keypair.public, self.keypair.expose_secret()].concat()
     }
 }
 

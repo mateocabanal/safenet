@@ -17,8 +17,12 @@ mod tests {
     };
 
     use crate::{
-        app_state::AppState,
-        crypto::key_exchange::{ECDHKeys, ECDHPubKey, ECDSAKeys, ECDSAPubKey, Signature},
+        app_state::{AppState, ServerKeys},
+        crypto::{
+            dilithium::DilithiumKeyPair,
+            key_exchange::{ECDHKeys, ECDHPubKey, ECDSAKeys, ECDSAPubKey, Signature},
+            PubKey,
+        },
         init_frame::kyber::KyberInitFrame,
     };
     use chacha20poly1305::{AeadCore, XChaCha20Poly1305};
@@ -32,8 +36,8 @@ mod tests {
         uuid::Uuid,
     };
 
+    use crate::frame::{EncryptionType, DITH_SIG_INDEX, KYBER_PUBKEY_INDEX, KYBER_PUBKEY_INDEX2};
     use tinyhttp::prelude::*;
-    use crate::frame::{DITH_SIG_INDEX, EncryptionType, KYBER_PUBKEY_INDEX, KYBER_PUBKEY_INDEX2};
 
     #[get("/keys/pub")]
     fn keys_pub() -> Vec<u8> {
@@ -131,7 +135,8 @@ mod tests {
     fn generate_keypair(id: String) -> ClientKeypair {
         let ecdsa_keypair = ECDSAKeys::init();
         let ecdh_keypair = ECDHKeys::init();
-        let shared_secret = ECDHKeys::init().gen_shared_secret_from_key(&ecdh_keypair.get_pub_key());
+        let shared_secret =
+            ECDHKeys::init().gen_shared_secret_from_key(&ecdh_keypair.get_pub_key());
 
         ClientKeypair::new()
             .pub_key(Box::new(ecdsa_keypair.get_pub_key()))
@@ -366,12 +371,12 @@ mod tests {
     }
 
     #[test]
-    fn test_ecdsa_keypair_to_and_from_bytes() -> Result<(), Box<dyn std::error::Error>> {
-        let ecdsa_bytes = APPSTATE.get().unwrap().read().unwrap().priv_key_to_bytes();
+    fn test_keypair_to_and_from_bytes() -> Result<(), Box<dyn std::error::Error>> {
+        let bytes = APPSTATE.get().unwrap().read().unwrap().priv_key_to_bytes();
 
-        println!("{}", ecdsa_bytes.len());
-        let _ecdsa_keys = ECDSAKeys::from_raw_bytes(&ecdsa_bytes).unwrap();
+        println!("{}", bytes.len());
 
+        let _server_keys = ServerKeys::init_with_priv_key(&bytes).unwrap();
         if Path::new("./target/privkey.der").is_file() {
             let mut handle = vec![];
             File::open("./target/privkey.der")
@@ -379,12 +384,15 @@ mod tests {
                 .read_to_end(&mut handle)
                 .unwrap();
 
-            let ecdsa_keys = ECDSAKeys::from_raw_bytes(&handle).unwrap();
-            println!("public key: {:?}", ecdsa_keys.get_pub_key())
+            let ecdsa_keys = ECDSAKeys::from_raw_bytes(&handle[0..185]).unwrap();
+            let dith_keys = DilithiumKeyPair::init_from_bytes(&handle[185..])
+                .unwrap_or_else(|_| panic!("invalid dith keys"));
+            println!("public key: {:?}", ecdsa_keys.get_pub_key());
+            println!("dilithium key: {:?}", dith_keys.get_pub().to_bytes());
         } else {
             File::create("./target/privkey.der")
                 .unwrap()
-                .write_all(&ecdsa_bytes)
+                .write_all(&bytes)
                 .unwrap();
         }
 
@@ -445,7 +453,10 @@ mod tests {
 
         let first_init_frame_bytes = first_init_frame.to_bytes();
         let opts_len = u32::from_be_bytes(first_init_frame_bytes[19..23].try_into()?) as usize;
-        assert_eq!(first_init_frame.keyneg_signature, first_init_frame_bytes[23 + opts_len + DITH_SIG_INDEX..].to_vec());
+        assert_eq!(
+            first_init_frame.keyneg_signature,
+            first_init_frame_bytes[23 + opts_len + DITH_SIG_INDEX..].to_vec()
+        );
 
         let mut sec_init_frame = InitFrame::new(EncryptionType::KyberDith);
         let server_uuid = Uuid::new_v4();
@@ -455,7 +466,28 @@ mod tests {
         println!("len of server res: {}", server_res.len());
         sec_init_frame.from_peer(server_res)?;
 
-        assert_eq!(APPSTATE.get().unwrap().read()?.client_keys.get(&client_uuid).unwrap().shared_secret.as_ref().unwrap(), APPSTATE.get().unwrap().read()?.client_keys.get(&server_uuid).unwrap().shared_secret.as_ref().unwrap());
+        assert_eq!(
+            APPSTATE
+                .get()
+                .unwrap()
+                .read()?
+                .client_keys
+                .get(&client_uuid)
+                .unwrap()
+                .shared_secret
+                .as_ref()
+                .unwrap(),
+            APPSTATE
+                .get()
+                .unwrap()
+                .read()?
+                .client_keys
+                .get(&server_uuid)
+                .unwrap()
+                .shared_secret
+                .as_ref()
+                .unwrap()
+        );
         Ok(())
     }
 }

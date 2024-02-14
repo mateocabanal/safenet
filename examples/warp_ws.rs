@@ -10,10 +10,10 @@ use std::sync::{
 
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
 use safenet::app_state::AppState;
-use safenet::options::Options;
 use safenet::frame::{DataFrame, EncryptionType, Frame, FrameType, InitFrame};
-use safenet::APPSTATE;
 use safenet::init_frame::kyber::KyberInitFrame;
+use safenet::options::Options;
+use safenet::APPSTATE;
 use tokio::sync::{mpsc, RwLock};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use uuid::Uuid;
@@ -47,7 +47,7 @@ async fn main() {
         priv_file.read_to_end(&mut priv_bytes).unwrap();
         AppState::init_with_priv_key(&priv_bytes).unwrap();
     } else {
-        log::info!("creating ECDSA keys");
+        log::info!("creating keys");
         AppState::init().unwrap();
         let mut priv_file = File::create("./privkey.der").unwrap();
         priv_file
@@ -85,7 +85,7 @@ async fn main() {
         .and(warp::post())
         .and(warp::body::bytes())
         .map(|body_bytes: warp::hyper::body::Bytes| {
-            let init_frame = InitFrame::default();
+            let init_frame = InitFrame::new(EncryptionType::KyberDith);
             warp::reply::Response::new(init_frame.from_peer(&body_bytes).unwrap().into())
         })
         .with(warp::reply::with::header(
@@ -129,18 +129,41 @@ async fn user_connected(ws: WebSocket, users: Users) {
             EncryptionType::Legacy => {
                 let res_body = InitFrame::default().from_peer(&req_bytes).unwrap();
                 user_ws_tx.send(Message::binary(res_body)).await.unwrap();
-            },
-            EncryptionType::KyberDith => todo!(),
+            }
+            EncryptionType::KyberDith => {
+                let res_body = InitFrame::new(EncryptionType::KyberDith)
+                    .from_peer(&req_bytes)
+                    .unwrap();
+                user_ws_tx.send(Message::binary(res_body)).await.unwrap();
+                log::debug!(
+                    "kyber-dith shared secret: {:?}",
+                    APPSTATE
+                        .get()
+                        .unwrap()
+                        .read()
+                        .unwrap()
+                        .client_keys
+                        .get(&my_id)
+                        .unwrap()
+                        .shared_secret
+                );
+            }
             EncryptionType::Kyber => {
                 let mut server_kyber_frame = KyberInitFrame::new();
                 let server_pub_key = server_kyber_frame.from_peer(req_bytes).unwrap();
-                user_ws_tx.send(Message::binary(server_pub_key)).await.unwrap();
+                user_ws_tx
+                    .send(Message::binary(server_pub_key))
+                    .await
+                    .unwrap();
                 let client_init = user_ws_rx.next().await.unwrap().unwrap().into_bytes();
 
                 let server_recv = server_kyber_frame.from_peer(&client_init).unwrap();
                 user_ws_tx.send(Message::binary(server_recv)).await.unwrap();
 
-                log::debug!("kyber shared secret: {:?}", server_kyber_frame.kyber.cipher.shared_secret);
+                log::debug!(
+                    "kyber shared secret: {:?}",
+                    server_kyber_frame.kyber.cipher.shared_secret
+                );
             }
         }
     }
@@ -148,31 +171,35 @@ async fn user_connected(ws: WebSocket, users: Users) {
     if let Some(addr) = frame_opts.get_ip_addr() {
         log::debug!("user ip: {}", addr);
     }
-    println!("new chat user: {}", my_id);
+
     // Use an unbounded channel to handle buffering and flushing of messages
     // to the websocket...
     let (tx, rx) = mpsc::unbounded_channel();
     let mut rx = UnboundedReceiverStream::new(rx);
 
+    let users_l = Arc::clone(&users);
     tokio::task::spawn(async move {
         while let Some(message) = rx.next().await {
-            user_ws_tx
-                .send(message)
-                .unwrap_or_else(|e| {
-                    println!("websocket send error: {}", e);
-                })
-                .await;
+            if user_ws_tx.send(message).await.is_err() {
+                log::warn!("{}: error in socket", my_id);
+                user_disconnected(my_id, &users_l).await; 
+                return;
+            }
         }
     });
 
     // Save the sender in our list of connected users.
+
     users.write().await.insert(my_id, tx);
+    log::debug!("added user to list");
 
     // Return a `Future` that is basically a state machine managing
     // this specific user's connection.
 
     // Every time the user sends a message, broadcast it to
     // all other users...
+
+    log::debug!("awaiting msgs");
     while let Some(result) = user_ws_rx.next().await {
         let msg = match result {
             Ok(msg) => msg,
@@ -186,12 +213,19 @@ async fn user_connected(ws: WebSocket, users: Users) {
 
     // user_ws_rx stream will keep processing as long as the user stays
     // connected. Once they disconnect, then...
-    user_disconnected(my_id, &users).await;
+
+    log::debug!("jumped outta the loop");
+
 }
 
 async fn user_message(my_id: Uuid, msg: Message, users: &Users) {
     // Skip any non-Text messages...
     let recv_bytes = msg.into_bytes();
+    if recv_bytes.is_empty() {
+        log::debug!("recv'd empty msg, ignoring...");
+        return;
+    }
+
     let mut data_frame = DataFrame::from_bytes(&recv_bytes).unwrap();
     data_frame.decode_frame().unwrap();
     let msg = String::from_utf8(data_frame.body.to_vec()).unwrap();
@@ -203,10 +237,12 @@ async fn user_message(my_id: Uuid, msg: Message, users: &Users) {
         let mut data_frame = DataFrame::new(&*new_msg.clone().into_bytes());
         data_frame.encode_frame(uid).unwrap();
 
-        if let Err(_disconnected) = tx.send(Message::binary(data_frame.to_bytes())) {
+        if tx.send(Message::binary(data_frame.to_bytes())).is_err() {
             // The tx is disconnected, our `user_disconnected` code
             // should be happening in another task, nothing more to
             // do here.
+
+            log::warn!("{} broken socket, closing", uid);
         }
     }
 }
@@ -215,7 +251,7 @@ async fn user_disconnected(my_id: Uuid, users: &Users) {
     eprintln!("good bye user: {}", my_id);
 
     // Stream closed up, so remove from the user list
-    users.write().await.remove(&my_id);
+    users.try_write().unwrap().remove(&my_id);
 }
 
 static INDEX_HTML: &str = r#"<!DOCTYPE html>
