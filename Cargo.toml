@@ -18,12 +18,11 @@ cfg-if = "1.0.0"
 pqc_kyber = { version = "0.7.1", features = ["std", "kyber1024"] }
 ring = { version = "0.17.7", features = ["wasm32_unknown_unknown_js"], optional = true }
 thiserror = "1"
-pqc_dilithium = { version = "0.2.0", features = ["mode5", "wasm"] }
+pqc_dilithium = { git = "https://github.com/kibernetikos/dilithium", branch = "feature/keypair_constructor", features = ["mode5", "wasm"] }
 downcast-rs = "1"
 
 # Until this is PR is accepted, we gotta use it
 [patch.crates-io]
-pqc_dilithium = { git = "https://github.com/kibernetikos/dilithium", branch = "feature/keypair_constructor" }
 
 [dev-dependencies]
 clap = { version = "4.2.1", features = ["derive"] }

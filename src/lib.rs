@@ -374,7 +374,11 @@ mod tests {
     fn test_keypair_to_and_from_bytes() -> Result<(), Box<dyn std::error::Error>> {
         let bytes = APPSTATE.get().unwrap().read().unwrap().priv_key_to_bytes();
 
-        println!("{}", bytes.len());
+        println!(
+            "byte len: {}, dith pub len: {}",
+            bytes.len(),
+            pqc_dilithium::PUBLICKEYBYTES
+        );
 
         let _server_keys = ServerKeys::init_with_priv_key(&bytes).unwrap();
         if Path::new("./target/privkey.der").is_file() {

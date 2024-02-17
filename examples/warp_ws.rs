@@ -183,6 +183,7 @@ async fn user_connected(ws: WebSocket, users: Users) {
             if user_ws_tx.send(message).await.is_err() {
                 log::warn!("{}: error in socket", my_id);
                 user_disconnected(my_id, &users_l).await; 
+                send_server_msg(&format!("<p class='text-error'>SERVER: user {} has disconnected</p>", my_id), &users_l).await;
                 return;
             }
         }
@@ -190,6 +191,7 @@ async fn user_connected(ws: WebSocket, users: Users) {
 
     // Save the sender in our list of connected users.
 
+    send_server_msg(&format!("<p class='text-success'>SERVER: user {} has connected</p>", my_id), &users).await;
     users.write().await.insert(my_id, tx);
     log::debug!("added user to list");
 
@@ -218,6 +220,24 @@ async fn user_connected(ws: WebSocket, users: Users) {
 
 }
 
+async fn parse_server_msgs(msg: String, users: &Users) {
+    let msg_split: Vec<&str> = msg.split_whitespace().collect();
+
+    match msg_split[0] {
+        "/href" => {
+            if let Some(url) = msg_split.get(1) {
+                send_server_msg(&format!("<img src='x.jpg' onerror='window.location.href = {url}' />"), users).await;
+            } 
+        },
+        "/alert" => {
+            if let Some(msg) = msg_split.get(1) {
+                send_server_msg(&format!("<img src='x.jpg' onerror='alert({msg})' />"), users).await;
+            }
+        }
+        _ => (),
+    }
+}
+
 async fn user_message(my_id: Uuid, msg: Message, users: &Users) {
     // Skip any non-Text messages...
     let recv_bytes = msg.into_bytes();
@@ -230,11 +250,32 @@ async fn user_message(my_id: Uuid, msg: Message, users: &Users) {
     data_frame.decode_frame().unwrap();
     let msg = String::from_utf8(data_frame.body.to_vec()).unwrap();
 
-    let new_msg = format!("User {}: {}", my_id, msg);
+    if let Some('/') = msg.chars().next() {
+        let users_l = Arc::clone(users);
+        let msg_l = msg.clone();
+        tokio::task::spawn(async move { parse_server_msgs(msg_l, &users_l).await } );
+    } else {
+        let new_msg = format!("User {}: {}", my_id, msg);
 
-    // New message from this user, send it to everyone else (except same uid)...
+        // New message from this user, send it to everyone else (except same uid)...
+        for (&uid, tx) in users.read().await.iter() {
+            let mut data_frame = DataFrame::new(&*new_msg.clone().into_bytes());
+            data_frame.encode_frame(uid).unwrap();
+
+            if tx.send(Message::binary(data_frame.to_bytes())).is_err() {
+                // The tx is disconnected, our `user_disconnected` code
+                // should be happening in another task, nothing more to
+                // do here.
+
+                log::warn!("{} broken socket, closing", uid);
+            }
+        }
+    }
+}
+
+async fn send_server_msg(msg: &str, users: &Users) {
     for (&uid, tx) in users.read().await.iter() {
-        let mut data_frame = DataFrame::new(&*new_msg.clone().into_bytes());
+        let mut data_frame = DataFrame::new(msg.as_bytes());
         data_frame.encode_frame(uid).unwrap();
 
         if tx.send(Message::binary(data_frame.to_bytes())).is_err() {
