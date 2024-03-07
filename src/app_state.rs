@@ -1,7 +1,7 @@
 use crate::crypto::{
     aes::ChaChaCipher,
     dilithium::DilithiumKeyPair,
-    key_exchange::{ECDHKeys, ECDSAKeys, ECDSAPubKey, SharedSecret},
+    key_exchange::{ECDHKeys, ECDSAKeys},
     PubKey,
 };
 
@@ -77,7 +77,7 @@ pub struct ClientKeypair {
     pub chacha: Option<ChaChaCipher>,
     pub uuid: Uuid,
     pub ip: Option<SocketAddr>,
-    pub nonce_key: Option<Vec<u8>>,
+    pub nonce_key: Option<[u8; 32]>,
 }
 
 impl std::fmt::Debug for ClientKeypair {
@@ -113,6 +113,32 @@ impl ClientKeypair {
         }
     }
 
+    pub fn from_bytes<T>(bytes: T) -> Result<Self, Box<dyn std::error::Error>>
+    where
+        T: AsRef<[u8]>,
+    {
+        let byte_slice = bytes.as_ref();
+        let uuid = Uuid::from_slice(&byte_slice[..16])?;
+        let shared_secret: [u8; 32] = byte_slice[16..48].try_into()?;
+        let nonce: [u8; 32] = byte_slice[48..].try_into()?;
+        Ok(ClientKeypair::new()
+            .uuid(uuid)
+            .shared_secret(Box::new(shared_secret))
+            .nonce_key(Some(nonce)))
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let bytes = [
+            self.uuid.as_bytes(),
+            self.shared_secret.as_ref().unwrap().as_ref(),
+            self.nonce_key.as_ref().unwrap().as_ref(),
+        ]
+        .concat();
+
+        log::debug!("client_keypair byte len: {}", bytes.len());
+        bytes
+    }
+
     pub fn id(mut self, id: String) -> Self {
         self.id = Some(id);
         self
@@ -145,7 +171,7 @@ impl ClientKeypair {
         self
     }
 
-    pub fn nonce_key(mut self, key: Option<Vec<u8>>) -> Self {
+    pub fn nonce_key(mut self, key: Option<[u8; 32]>) -> Self {
         self.nonce_key = key;
         self
     }

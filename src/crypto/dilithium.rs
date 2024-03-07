@@ -34,6 +34,7 @@ impl DilithiumKeyPair {
     }
 }
 
+#[derive(Clone)]
 pub struct DilithiumPubKey {
     pub_key: [u8; PUBLICKEYBYTES],
 }
@@ -56,7 +57,7 @@ impl DilithiumPubKey {
 
 impl PubKey for DilithiumPubKey {
     fn verify(&self, msg: &[u8], signature: &[u8]) -> Result<(), Box<dyn std::error::Error>> {
-        if let Err(e) = self.verify(msg, signature) {
+        if let Err(_e) = self.verify(msg, signature) {
             Err("verification failed".into())
         } else {
             Ok(())

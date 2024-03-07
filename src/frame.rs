@@ -18,12 +18,12 @@ use uuid::Uuid;
 use blake2::{digest::consts::U24, Blake2b, Digest};
 use chacha20poly1305::aead::Aead;
 
+use crate::crypto::kyber::KyberDithCipher;
 use crate::{
     app_state::ClientKeypair,
     crypto::key_exchange::{ECDHKeys, ECDHPubKey, ECDSAPubKey, Signature},
     APPSTATE,
 };
-use crate::crypto::kyber::KyberDithCipher;
 
 type Blake2b192 = Blake2b<U24>;
 
@@ -97,6 +97,7 @@ impl InitOptions {
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<Vec<u8>> for InitOptions {
     fn into(self) -> Vec<u8> {
         let enc_type = self.encryption_type.unwrap() as u8;
@@ -299,7 +300,7 @@ impl Default for InitFrame {
 
 fn init_frame_kyberdith_handler(
     bytes: &[u8],
-    opts: &Options,
+    _opts: &Options,
     id: &[u8],
     uuid: Uuid,
     self_frame: InitFrame,
@@ -313,24 +314,37 @@ fn init_frame_kyberdith_handler(
         .verify(kyber_pubkey, dith_sig)
         .unwrap_or_else(|_| panic!("verify failed!"));
 
-    if bytes.len() != DITH_SIG_INDEX + pqc_dilithium::SIGNBYTES + (pqc_kyber::KYBER_CIPHERTEXTBYTES * 2) {
-        let mut trait_kyber_cipher = self_frame
-            .keyneg_keys
-            .unwrap();
+    if bytes.len()
+        != DITH_SIG_INDEX + pqc_dilithium::SIGNBYTES + (pqc_kyber::KYBER_CIPHERTEXTBYTES * 2)
+    {
+        let mut trait_kyber_cipher = self_frame.keyneg_keys.unwrap();
 
         let kyber_cipher: &mut KyberDithCipher = trait_kyber_cipher.downcast_mut().unwrap();
 
         let ciphertext = kyber_cipher.gen_ciphertext(kyber_pubkey);
 
         let mut trait_nonce_kyber_cipher = self_frame.nonce_keyneg_keys.unwrap();
-        let nonce_kyber_cipher: &mut KyberDithCipher = trait_nonce_kyber_cipher.downcast_mut().unwrap();
+        let nonce_kyber_cipher: &mut KyberDithCipher =
+            trait_nonce_kyber_cipher.downcast_mut().unwrap();
 
         let nonce_ciphertext = nonce_kyber_cipher.gen_ciphertext(kyber_pubkey2);
 
         let client_keypair = ClientKeypair::new()
             .pub_key(Box::new(dith_pubkey))
-            .shared_secret(kyber_cipher.shared_secret.unwrap().to_vec().into_boxed_slice())
-            .nonce_key(Some(nonce_kyber_cipher.shared_secret.unwrap().to_vec()))
+            .shared_secret(
+                kyber_cipher
+                    .shared_secret
+                    .unwrap()
+                    .to_vec()
+                    .into_boxed_slice(),
+            )
+            .nonce_key(Some(
+                nonce_kyber_cipher
+                    .shared_secret
+                    .unwrap()
+                    .as_ref()
+                    .try_into()?,
+            ))
             .uuid(uuid)
             .id(String::from_utf8(id.to_vec()).unwrap());
 
@@ -356,21 +370,33 @@ fn init_frame_kyberdith_handler(
             &self_frame.nonce_pub_key.unwrap(),
             &self_frame.keyneg_signature,
             &ciphertext,
-            &nonce_ciphertext
+            &nonce_ciphertext,
         ]
-            .concat())
+        .concat())
     } else {
         let ciphertext = &bytes[CIPHERTEXT_INDEX..NONCE_CIPHERTEXT_INDEX];
         let nonce_ciphertext = &bytes[NONCE_CIPHERTEXT_INDEX..];
 
-        let shared_secret: Box<KyberDithCipher> = self_frame.keyneg_keys.unwrap().downcast().unwrap_or_else(|_| panic!("could not downcast Box<dyn KeyNeg> to KyberDithCipher"));
-        let nonce_shared_secret: Box<KyberDithCipher>  = self_frame.nonce_keyneg_keys.unwrap().downcast().unwrap_or_else(|_| panic!("could not downcast Box<dyn KeyNeg> to KyberDithCipher"));
-
+        let shared_secret: Box<KyberDithCipher> = self_frame
+            .keyneg_keys
+            .unwrap()
+            .downcast()
+            .unwrap_or_else(|_| panic!("could not downcast Box<dyn KeyNeg> to KyberDithCipher"));
+        let nonce_shared_secret: Box<KyberDithCipher> = self_frame
+            .nonce_keyneg_keys
+            .unwrap()
+            .downcast()
+            .unwrap_or_else(|_| panic!("could not downcast Box<dyn KeyNeg> to KyberDithCipher"));
 
         let client_keypair = ClientKeypair::new()
             .pub_key(Box::new(dith_pubkey))
             .shared_secret(shared_secret.gen_shared_secret(ciphertext))
-            .nonce_key(Some(nonce_shared_secret.gen_shared_secret(nonce_ciphertext).to_vec()))
+            .nonce_key(Some(
+                nonce_shared_secret
+                    .gen_shared_secret(nonce_ciphertext)
+                    .as_ref()
+                    .try_into()?,
+            ))
             .uuid(uuid)
             .id(String::from_utf8(id.to_vec()).unwrap());
 
@@ -404,13 +430,15 @@ fn init_frame_legacy_handler(
         .get_nonce_secondary_key()
         .unwrap();
 
-    let (sec_shared_secret, client_signature, is_nonce) = if is_second_ecdh_key {
+    let (_sec_shared_secret, client_signature, is_nonce) = if is_second_ecdh_key {
         // Client has confirmed they sent another ECDH key.
 
         let sec_key_bytes = &bytes[194..291];
         // let sec_key = ECDHPubKey::from_sec1_bytes(sec_key_bytes).unwrap();
         let sec_ecdh_keys = self_frame.nonce_keyneg_keys.unwrap();
-        let sec_shared_secret: Box<ECDHKeys> = sec_ecdh_keys.downcast().unwrap_or_else(|_| panic!("could not downcast Box<dyn KeyNeg> to Box<ECDHKeys>"));
+        let sec_shared_secret: Box<ECDHKeys> = sec_ecdh_keys
+            .downcast()
+            .unwrap_or_else(|_| panic!("could not downcast Box<dyn KeyNeg> to Box<ECDHKeys>"));
         (
             Some(sec_shared_secret.gen_shared_secret(sec_key_bytes)),
             Signature::from_der(&bytes[291..]).unwrap(),
@@ -427,7 +455,9 @@ fn init_frame_legacy_handler(
 
     let ecdh_keys: Box<ECDHKeys> = self_frame
         .keyneg_keys
-        .unwrap().downcast().unwrap_or_else(|_| panic!("could not downcast Box<dyn KeyNeg> to Box<ECDHKeys>"));
+        .unwrap()
+        .downcast()
+        .unwrap_or_else(|_| panic!("could not downcast Box<dyn KeyNeg> to Box<ECDHKeys>"));
 
     let peer_shared_secret = ecdh_keys.gen_shared_secret(client_ecdh_key_bytes);
     log::trace!("client: secret: {:#?}", &peer_shared_secret);
@@ -439,7 +469,6 @@ fn init_frame_legacy_handler(
         .uuid(uuid)
         .pub_key(Box::new(client_pub_key))
         .shared_secret(peer_shared_secret);
-
 
     log::trace!("added uuid to clientkeypair: {}", &uuid);
 
@@ -453,8 +482,7 @@ fn init_frame_legacy_handler(
     let options_bytes: Vec<u8> = self_frame.options.into();
     let options_size: u32 = options_bytes.len() as u32;
 
-    if is_nonce
-    {
+    if is_nonce {
         Ok([
             self_frame.id.as_slice(),
             self_frame.uuid.as_slice(),
@@ -465,7 +493,7 @@ fn init_frame_legacy_handler(
             &self_frame.nonce_pub_key.unwrap(),
             &self_frame.keyneg_signature,
         ]
-            .concat())
+        .concat())
     } else {
         Ok([
             self_frame.id.as_slice(),
@@ -476,7 +504,34 @@ fn init_frame_legacy_handler(
             &self_frame.keyneg_pub_key,
             &self_frame.keyneg_signature,
         ]
-            .concat())
+        .concat())
+    }
+}
+
+#[cfg(feature = "_clone")]
+impl Clone for InitFrame {
+    fn clone(&self) -> Self {
+        let id = self.id;
+        let uuid = self.uuid;
+        let options = self.options.clone();
+        let sig_pub_key = self.sig_pub_key.clone();
+        let keyneg_pub_key = self.keyneg_pub_key.clone();
+        let keyneg_keys = self.keyneg_keys.clone();
+        let keyneg_signature = self.keyneg_signature.clone();
+        let nonce_pub_key = self.nonce_pub_key.clone();
+        let nonce_keyneg_keys = self.nonce_keyneg_keys.clone();
+
+        Self {
+            id,
+            uuid,
+            options,
+            sig_pub_key,
+            keyneg_pub_key,
+            keyneg_keys,
+            keyneg_signature,
+            nonce_pub_key,
+            nonce_keyneg_keys,
+        }
     }
 }
 
@@ -512,7 +567,6 @@ impl InitFrame {
             .get_encryption_type()
             .ok_or("somehow no enc_type?")?;
 
-        let ip_addr_of_peer = options.ip_addr;
         let init_vars_slice = &body[options_len as usize..];
 
         match enc_type {
@@ -522,7 +576,7 @@ impl InitFrame {
             EncryptionType::Legacy => {
                 init_frame_legacy_handler(init_vars_slice, &options, id, uuid, self)
             }
-            _ => Err("invalid encryption time".into())
+            _ => Err("invalid encryption time".into()),
         }
     }
 
@@ -552,7 +606,8 @@ impl InitFrame {
                 let ecdh_pub_key = ecdh_keys.get_pub_key_to_bytes().into_boxed_slice();
 
                 let nonce_keyneg_keys = Box::new(ECDHKeys::init());
-                let nonce_pub_key = Some(nonce_keyneg_keys.get_pub_key_to_bytes().into_boxed_slice());
+                let nonce_pub_key =
+                    Some(nonce_keyneg_keys.get_pub_key_to_bytes().into_boxed_slice());
 
                 let ecdh_signature = appstate_r
                     .server_keys
@@ -570,7 +625,7 @@ impl InitFrame {
                     nonce_keyneg_keys: Some(nonce_keyneg_keys as Box<dyn KeyNeg>),
                     nonce_pub_key,
                 }
-            },
+            }
             EncryptionType::KyberDith => {
                 let sig_pub_key = appstate_r.server_keys.dilithium.get_pub();
                 let keyneg_keys = KyberDithCipher::init();
@@ -588,12 +643,11 @@ impl InitFrame {
                     keyneg_keys: Some(Box::new(keyneg_keys)),
                     keyneg_signature,
                     nonce_keyneg_keys: Some(Box::new(nonce_keyneg_keys)),
-                    nonce_pub_key: Some(nonce_pub_key.into_boxed_slice())
+                    nonce_pub_key: Some(nonce_pub_key.into_boxed_slice()),
                 }
-            },
-            _ => todo!()
+            }
+            _ => todo!(),
         }
-
     }
 
     pub fn set_options(&mut self, opts: Options) {
@@ -680,22 +734,22 @@ impl DataFrame {
             .get(&target_uuid)
             .ok_or("could not find client keys")?;
 
-        let shared_secret_bytes = if let Some(kyber) = target_keychain.kyber {
-            kyber.to_vec()
-        } else {
-            target_keychain
-                .shared_secret
-                .as_ref()
-                .ok_or("couldn't find ecdh keys")
-                .unwrap()
-                .to_vec()
-        };
-
         let mut hasher = Blake2b192::new();
+
         if let Some(nonce) = &target_keychain.nonce_key {
             log::trace!("encoding with secondary ecdh key");
             hasher.update(nonce);
         } else {
+            let shared_secret_bytes = if let Some(kyber) = target_keychain.kyber {
+                kyber.to_vec()
+            } else {
+                target_keychain
+                    .shared_secret
+                    .as_ref()
+                    .ok_or("couldn't find ecdh keys")
+                    .unwrap()
+                    .to_vec()
+            };
             hasher.update(shared_secret_bytes)
         }
         let res = hasher.finalize();
@@ -709,7 +763,7 @@ impl DataFrame {
             .unwrap();
 
         self.id = Some(app_state.user_id);
-        self.uuid = Some(app_state.uuid.into_bytes());
+        self.uuid = Some(*app_state.uuid.as_bytes());
         self.body = encrypted_body.into_boxed_slice();
 
         Ok(())
@@ -817,14 +871,12 @@ impl DataFrame {
 
 #[cfg(test)]
 impl DataFrame {
+    #[allow(dead_code)]
     pub(crate) fn encrypt_frame_with_keypair(
         &mut self,
         keypair: &ClientKeypair,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let shared_secret_bytes = keypair
-            .shared_secret
-            .as_ref()
-            .ok_or("failed to get ecdh")?;
+        let shared_secret_bytes = keypair.shared_secret.as_ref().ok_or("failed to get ecdh")?;
 
         let mut hasher = Blake2b192::new();
         hasher.update(shared_secret_bytes);
@@ -847,10 +899,7 @@ impl DataFrame {
         &mut self,
         keypair: &ClientKeypair,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let shared_secret_bytes = keypair
-            .shared_secret
-            .as_ref()
-            .ok_or("failed to get ecdh")?;
+        let shared_secret_bytes = keypair.shared_secret.as_ref().ok_or("failed to get ecdh")?;
 
         let mut hasher = Blake2b192::new();
         hasher.update(shared_secret_bytes);

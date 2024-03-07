@@ -4,7 +4,7 @@ use pqc_kyber::{
 };
 use rand::rngs::ThreadRng;
 
-use crate::crypto::{KeyNeg, PubKey};
+use crate::crypto::KeyNeg;
 pub struct KyberDithCipher {
     pub pub_key: [u8; pqc_kyber::KYBER_PUBLICKEYBYTES],
     pub priv_key: [u8; pqc_kyber::KYBER_SECRETKEYBYTES],
@@ -39,7 +39,11 @@ impl KeyNeg for KyberDithCipher {
         if pub_key.len() == KYBER_CIPHERTEXTBYTES {
             Box::new(decapsulate(pub_key, &self.priv_key).unwrap())
         } else {
-            panic!("gen_shared_secret: not same len!\nfound: {}, expected: {}", pub_key.len(), KYBER_CIPHERTEXTBYTES);
+            panic!(
+                "gen_shared_secret: not same len!\nfound: {}, expected: {}",
+                pub_key.len(),
+                KYBER_CIPHERTEXTBYTES
+            );
         }
     }
 }

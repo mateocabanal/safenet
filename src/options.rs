@@ -11,10 +11,10 @@ use thiserror::Error;
 /// As of now, options are not encrypted. However, options are planned to be encrypted.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Options {
-    pub(crate) frame_type: FrameType,
-    pub(crate) ip_addr: Option<SocketAddr>,
-    pub(crate) init_opts: Option<InitOptions>,
-    pub(crate) map: HashMap<String, String>,
+    pub frame_type: FrameType,
+    pub ip_addr: Option<SocketAddr>,
+    pub init_opts: Option<InitOptions>,
+    pub map: HashMap<String, String>,
 }
 
 impl Default for Options {
@@ -195,4 +195,3 @@ pub enum OptionError<'a> {
     #[error("Missing option: {}", .0)]
     MissingOpt(&'a str),
 }
-

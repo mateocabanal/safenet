@@ -1,9 +1,10 @@
 use criterion::{criterion_group, criterion_main, Criterion};
 use safenet::{
     app_state::AppState,
-    frame::{Frame, InitFrame},
+    frame::{EncryptionType, Frame, InitFrame},
     init_frame::kyber::KyberInitFrame,
 };
+
 fn init_frame_enc(c: &mut Criterion) {
     let _ = AppState::init();
     c.bench_function("legacy init frame negotiation", |b| {
@@ -30,5 +31,21 @@ fn init_frame_enc_kyber(c: &mut Criterion) {
     });
 }
 
-criterion_group!(benches, init_frame_enc, init_frame_enc_kyber);
+fn init_frame_enc_kyberdith(c: &mut Criterion) {
+    let _ = AppState::init();
+    c.bench_function("kyberdith init frame negotiation", |b| {
+        b.iter(|| {
+            InitFrame::new(EncryptionType::KyberDith)
+                .from_peer(InitFrame::new(EncryptionType::KyberDith).to_bytes())
+                .unwrap();
+        })
+    });
+}
+
+criterion_group!(
+    benches,
+    init_frame_enc,
+    init_frame_enc_kyber,
+    init_frame_enc_kyberdith
+);
 criterion_main!(benches);

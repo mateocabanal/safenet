@@ -9,8 +9,6 @@ use p384::{
     EncodedPoint, PublicKey,
 };
 
-use crate::crypto::{KeyNeg, PubKey};
-
 use rand::rngs::OsRng;
 
 pub struct Signature {
@@ -58,7 +56,6 @@ impl ECDSAPubKey {
         }
     }
 }
-
 
 #[derive(Clone, Debug)]
 pub struct ECDSAKeys {
@@ -180,4 +177,3 @@ impl ECDHKeys {
         SharedSecret { shared_secret }
     }
 }
-

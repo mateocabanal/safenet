@@ -315,7 +315,7 @@ mod tests {
         let first_pair = app_state
             .client_keys
             .iter()
-            .find(|(_, i)| i.id.as_ref().ok_or("failed to get id as bytes").unwrap() == "aaa")
+            .find(|(_, i)| i.id.as_ref().unwrap_or(&String::from("")) == "aaa")
             .map(|(_, i)| i)
             .ok_or("could not find keypair")?;
 
@@ -324,7 +324,7 @@ mod tests {
         let second_pair = app_state
             .client_keys
             .iter()
-            .find(|(_, i)| i.id.as_ref().ok_or("failed to get id as bytes").unwrap() == "bbb")
+            .find(|(_, i)| i.id.as_ref().unwrap_or(&String::from("")) == "bbb")
             .map(|(_, i)| i)
             .ok_or("could not find keypair")?;
 
@@ -492,6 +492,51 @@ mod tests {
                 .as_ref()
                 .unwrap()
         );
+        Ok(())
+    }
+
+    #[test]
+    fn test_serialize_deserialize_keypair() -> Result<(), Box<dyn std::error::Error>> {
+        let mut first_init_frame = InitFrame::new(EncryptionType::KyberDith);
+
+        let client_uuid = Uuid::new_v4();
+        first_init_frame.uuid = *client_uuid.as_bytes();
+
+        let first_init_frame_bytes = first_init_frame.to_bytes();
+        let opts_len = u32::from_be_bytes(first_init_frame_bytes[19..23].try_into()?) as usize;
+        assert_eq!(
+            first_init_frame.keyneg_signature,
+            first_init_frame_bytes[23 + opts_len + DITH_SIG_INDEX..].to_vec()
+        );
+
+        let mut sec_init_frame = InitFrame::new(EncryptionType::KyberDith);
+        let server_uuid = Uuid::new_v4();
+        sec_init_frame.uuid = *server_uuid.as_bytes();
+
+        let server_res = first_init_frame.from_peer(sec_init_frame.to_bytes())?;
+        println!("len of server res: {}", server_res.len());
+        sec_init_frame.from_peer(server_res)?;
+        let self_uuid = APPSTATE.get().unwrap().read().unwrap().uuid;
+
+        let mut data_frame = DataFrame::new("test!".as_bytes());
+        data_frame.encode_frame(client_uuid)?;
+        data_frame.uuid = Some(*client_uuid.as_bytes());
+
+        let mut data_frame_deser = DataFrame::from_bytes(data_frame.to_bytes())?;
+
+        let mut appstate_rw = APPSTATE.get().unwrap().write().unwrap();
+        let client_bytes_keypair = appstate_rw
+            .client_keys
+            .get(&client_uuid)
+            .unwrap()
+            .to_bytes();
+
+        let deser_client = ClientKeypair::from_bytes(client_bytes_keypair)?;
+        appstate_rw.client_keys.insert(client_uuid, deser_client);
+        drop(appstate_rw);
+
+        data_frame_deser.decode_frame()?;
+
         Ok(())
     }
 }

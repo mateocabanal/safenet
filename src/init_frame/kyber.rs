@@ -2,10 +2,10 @@ use pqc_kyber::{AKE_INIT_BYTES, AKE_RESPONSE_BYTES, KYBER_PUBLICKEYBYTES};
 use uuid::Uuid;
 
 use crate::{
-    options::Options,
     app_state::ClientKeypair,
     crypto::kyber::KyberCipher,
     frame::{EncryptionType, Frame, FrameType, InitFrame, InitOptions},
+    options::Options,
     APPSTATE,
 };
 
@@ -205,7 +205,7 @@ impl KyberInitFrame {
 
                         let client_keypair = ClientKeypair::new()
                             .kyber(kyber.cipher.shared_secret)
-                            .nonce_key(Some(kyber_nonce.cipher.shared_secret.to_vec()))
+                            .nonce_key(Some(kyber_nonce.cipher.shared_secret))
                             .uuid(client_uuid)
                             .id(std::str::from_utf8(&bytes[0..3]).unwrap().to_string());
                         appstate_rw.client_keys.insert(client_uuid, client_keypair);
@@ -238,7 +238,7 @@ impl KyberInitFrame {
 
                         let client_keypair = ClientKeypair::new()
                             .kyber(kyber.cipher.shared_secret)
-                            .nonce_key(Some(kyber_nonce.cipher.shared_secret.to_vec()))
+                            .nonce_key(Some(kyber_nonce.cipher.shared_secret))
                             .uuid(client_uuid)
                             .id(std::str::from_utf8(&bytes[0..3]).unwrap().to_string());
                         appstate_rw.client_keys.insert(client_uuid, client_keypair);

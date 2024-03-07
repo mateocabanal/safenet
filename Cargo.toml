@@ -20,6 +20,7 @@ ring = { version = "0.17.7", features = ["wasm32_unknown_unknown_js"], optional 
 thiserror = "1"
 pqc_dilithium = { git = "https://github.com/kibernetikos/dilithium", branch = "feature/keypair_constructor", features = ["mode5", "wasm"] }
 downcast-rs = "1"
+dyn-clone = "1.0.16"
 
 # Until this is PR is accepted, we gotta use it
 [patch.crates-io]
@@ -44,6 +45,7 @@ criterion = "0.5.1"
 default = ["server", "client", "rust_crypto"]
 client = []
 server = []
+_clone = ["rust_crypto"]
 rust_crypto = ["dep:p384"]
 ring = ["dep:ring"]
 
