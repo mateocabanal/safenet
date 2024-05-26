@@ -27,6 +27,7 @@ use crate::{
 
 type Blake2b192 = Blake2b<U24>;
 
+/// Used to determine frame type of given frame
 #[derive(Debug, Clone, Default, Copy, PartialEq, Eq)]
 pub enum FrameType {
     #[default]
@@ -34,6 +35,7 @@ pub enum FrameType {
     Init = 0,
 }
 
+/// Used to determine encryption type for
 #[derive(Debug, Clone, Default, Copy, PartialEq, Eq)]
 pub enum EncryptionType {
     #[default]
@@ -243,6 +245,7 @@ impl Frame for InitFrame {
         }
     }
 
+    /// Create new InitFrame from any type that implements `AsRef<[u8]>`
     fn from_bytes<T>(bytes: T) -> Result<Self, Box<dyn std::error::Error>>
     where
         T: AsRef<[u8]>,
@@ -945,26 +948,3 @@ impl TryFrom<&[u8]> for DataFrame {
         })
     }
 }
-//impl TryFrom<&Vec<u8>> for DataFrame {
-//    type Error = String;
-//    fn try_from(input: &Vec<u8>) -> Result<DataFrame, String> {
-//        let frame_slice = input.as_slice();
-//        let id = frame_slice[0..=2].try_into().unwrap();
-//        let uuid = frame_slice[3..=18].try_into().unwrap();
-//        let body = frame_slice[19..].to_vec();
-//
-//        if std::str::from_utf8(&frame_slice[0..=3]).is_err() {
-//            return Err("id is not a valid string".to_owned());
-//        };
-//
-//        let id = Some(id);
-//        let uuid = Some(uuid);
-//
-//        Ok(DataFrame {
-//            id,
-//            uuid,
-//            body,
-//            options: Options::default(),
-//        })
-//    }
-//}

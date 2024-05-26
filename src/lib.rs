@@ -120,12 +120,7 @@ mod tests {
             let conf =
                 Config::new().routes(Routes::new(vec![conn_init(), server_msg(), keys_pub()]));
             std::thread::spawn(|| HttpListener::new(s, conf).start());
-            APPSTATE
-                .get()
-                .unwrap()
-                .try_write()
-                .unwrap()
-                .is_http_server_on = true;
+            APPSTATE.get().unwrap().write().unwrap().is_http_server_on = true;
         } else {
             log::warn!("could not bind to port 3876, http server could be on already");
         }
@@ -258,6 +253,7 @@ mod tests {
 
     #[test]
     fn test_network_server_pub_key() {
+        setup_logger();
         start_http_server();
         while !APPSTATE.get().unwrap().read().unwrap().is_http_server_on {}
         let serv_pub_key_as_bytes = minreq::get("http://127.0.0.1:3876/keys/pub")
@@ -281,7 +277,6 @@ mod tests {
 
     #[test]
     fn test_uuid() -> Result<(), Box<dyn std::error::Error>> {
-        start_http_server();
         while !APPSTATE.get().unwrap().read()?.is_http_server_on {}
         let uuid = APPSTATE.get().unwrap().read()?.uuid;
         let client_init_frame = InitFrame::default();
@@ -299,7 +294,6 @@ mod tests {
 
     #[test]
     fn verify_data_frame() -> Result<(), Box<dyn std::error::Error>> {
-        setup_logger();
         let aaa_keys = generate_keypair(String::from("aaa"));
         let bbb_keys = generate_keypair(String::from("bbb"));
 
@@ -372,6 +366,7 @@ mod tests {
 
     #[test]
     fn test_keypair_to_and_from_bytes() -> Result<(), Box<dyn std::error::Error>> {
+        while APPSTATE.get().is_none() {}
         let bytes = APPSTATE.get().unwrap().read().unwrap().priv_key_to_bytes();
 
         println!(
@@ -405,8 +400,7 @@ mod tests {
 
     #[test]
     fn test_kyber_handler() -> Result<(), Box<dyn std::error::Error>> {
-        setup_logger();
-        start_http_server();
+        while APPSTATE.get().is_none() {}
         let mut client_frame = KyberInitFrame::new();
         let mut server_frame = KyberInitFrame::new();
 
@@ -450,6 +444,7 @@ mod tests {
 
     #[test]
     fn test_kyberdith_init_frame() -> Result<(), Box<dyn std::error::Error>> {
+        while APPSTATE.get().is_none() {}
         let mut first_init_frame = InitFrame::new(EncryptionType::KyberDith);
 
         let client_uuid = Uuid::new_v4();
@@ -497,6 +492,7 @@ mod tests {
 
     #[test]
     fn test_serialize_deserialize_keypair() -> Result<(), Box<dyn std::error::Error>> {
+        while APPSTATE.get().is_none() {}
         let mut first_init_frame = InitFrame::new(EncryptionType::KyberDith);
 
         let client_uuid = Uuid::new_v4();

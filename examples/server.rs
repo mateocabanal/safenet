@@ -90,18 +90,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .init()?;
     let args = Args::parse();
     APPSTATE.get().unwrap().write()?.user_id = args.id.as_bytes().try_into()?;
-    let local_ip = local_ip()?;
     let port = args.port;
     let sock = TcpListener::bind(format!("0.0.0.0:{port}")).expect("could not bind on port 1800");
-    APPSTATE
-        .get()
-        .unwrap()
-        .write()
-        .expect("failed to get write lock")
-        .server_addr = Some(SocketAddr::new(
-        IpAddr::V4(local_ip.to_string().parse().unwrap()),
-        args.port.try_into().unwrap(),
-    ));
     let conf = Config::new()
         .routes(Routes::new(vec![conn_init(), server_msg(), http_test()]))
         .headers(vec!["Access-Control-Allow-Origin: *".into()]);
