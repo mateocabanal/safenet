@@ -5,9 +5,13 @@ Safenet is a new protocol, with the goal of being an alternative to HTTP(s).
 You can use whatever network protocol you want, and you can use safenet on top of it.
 
 Currently, Safenet has 3 encryption modes.
- - Legacy (Key Exchange: ECDSA, Hashing: Blake2b, Encryption: ChaCha20)
- - Kyber (requires direct socket with peer, so no HTTP)
- - Kyber-Dilithium (Key Exchange: Dilithium, Hashing: N/A, Encryption: Kyber)
+
+| | Signing   | Key Negotiation | Hashing (KDF) | Symmetrical Encryption |
+|------------|-----------|-----------------|---------------|------------------------|
+| Legacy     | ECDSA     | ECDH            | Blake2b       | ChaCha20Poly1305       |
+| Kyber      | Kyber     | Kyber           | Blake2b       | ChaCha20Poly1305       |
+| Kyber-Dith | Dilithium | Kyber           | Blake2b       | ChaCha20Poly1305       |
+
 
 I suggest Kyber-Dilithium, since it is a form of PQE (Post Quantum Encryption).
 This means it is resilient to attacks from quantum computers.
