@@ -82,3 +82,4 @@ fn api_echo(bytes: &[u8]) -> Vec<u8> {
 ```
 
 Checkout the [examples](https://github.com/mateocabanal/safenet/tree/main/examples) for full usage
+See my [blog](https://mateocabanal.ca) for more information
