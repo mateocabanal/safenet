@@ -97,12 +97,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .headers(vec!["Access-Control-Allow-Origin: *".into()]);
     let http = HttpListener::new(sock, conf);
 
-    std::thread::spawn(|| http.start());
-    // WebSockets
-
-    loop {
-        sleep(Duration::from_secs(5));
-    }
+    http.start();
 
     Ok(())
 }
